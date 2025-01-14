@@ -28,6 +28,8 @@ from rich.traceback import install
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 import xml.etree.ElementTree as ET
 
+EXCLUDED_DIRS = ["dist", "node_modules", ".git", "__pycache__"]  # Add any other directories to exclude here
+
 def safe_file_read(filepath, fallback_encoding='latin1'):
     try:
         with open(filepath, "r", encoding='utf-8') as file:
@@ -71,6 +73,9 @@ def process_directory(url, output):
     files = response.json()
 
     for file in files:
+        if file["type"] == "dir" and file["name"] in EXCLUDED_DIRS:
+            continue  # Skip excluded directories
+
         if file["type"] == "file" and is_allowed_filetype(file["name"]):
             print(f"Processing {file['path']}...")
 
@@ -94,6 +99,9 @@ def process_directory(url, output):
 
 def process_local_directory(local_path, output):
     for root, dirs, files in os.walk(local_path):
+        # Modify dirs in-place to exclude specified directories
+        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
+
         for file in files:
             if is_allowed_filetype(file):
                 print(f"Processing {os.path.join(root, file)}...")
@@ -143,6 +151,9 @@ def process_github_repo(repo_url):
 
         for file in files:
             if file["type"] == "file" and is_allowed_filetype(file["name"]):
+                if file["type"] == "dir" and file["name"] in EXCLUDED_DIRS:
+                    continue
+
                 print(f"Processing {file['path']}...")
 
                 temp_file = f"temp_{file['name']}"
@@ -170,6 +181,9 @@ def process_local_folder(local_path):
     def process_local_directory(local_path):
         content = [f'<source type="local_directory" path="{escape_xml(local_path)}">']
         for root, dirs, files in os.walk(local_path):
+            # Exclude directories
+            dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
+
             for file in files:
                 if is_allowed_filetype(file):
                     print(f"Processing {os.path.join(root, file)}...")
