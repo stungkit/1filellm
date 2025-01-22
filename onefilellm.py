@@ -47,12 +47,6 @@ def download_file(url, target_path):
     with open(target_path, "wb") as f:
         f.write(response.content)
 
-def is_allowed_filetype(filename):
-    allowed_extensions = ['.py', '.txt', '.js', '.tsx', '.ts', '.md', '.cjs', '.html', '.json', '.ipynb', '.h', '.localhost', '.sh', '.yaml', '.example']
-#    allowed_extensions = ['.md']
-    return any(filename.endswith(ext) for ext in allowed_extensions)
-    
-
 def process_ipynb_file(temp_file):
     with open(temp_file, "r", encoding='utf-8', errors='ignore') as f:
         notebook_content = f.read()
@@ -589,6 +583,63 @@ def process_github_issue(issue_url):
     print(f"Issue {issue_number} and repository content processed successfully.")
 
     return formatted_text
+
+
+def is_excluded_file(filename):
+    """
+    Check if a file should be excluded based on patterns.
+
+    Args:
+        filename (str): The file path to check
+
+    Returns:
+        bool: True if the file should be excluded, False otherwise
+    """
+    excluded_patterns = [
+        '.pb.go',  # Proto generated Go files
+        '_grpc.pb.go',  # gRPC generated Go files
+        'mock_',  # Mock files
+        '/generated/',  # Generated files in a generated directory
+        '/mocks/',  # Mock files in a mocks directory
+        '.gen.',  # Generated files with .gen. in name
+        '_generated.',  # Generated files with _generated in name
+    ]
+
+    return any(pattern in filename for pattern in excluded_patterns)
+
+
+def is_allowed_filetype(filename):
+    """
+    Check if a file should be processed based on its extension and exclusion patterns.
+
+    Args:
+        filename (str): The file path to check
+
+    Returns:
+        bool: True if the file should be processed, False otherwise
+    """
+    # First check if file matches any exclusion patterns
+    if is_excluded_file(filename):
+        return False
+
+    # Then check if it has an allowed extension
+    allowed_extensions = [
+        '.go',
+        '.proto',
+        '.py',
+        '.txt',
+        '.md',
+        '.cjs',
+        '.html',
+        '.json',
+        '.ipynb',
+        '.h',
+        '.localhost',
+        '.yaml',
+        '.example'
+    ]
+
+    return any(filename.endswith(ext) for ext in allowed_extensions)
 
 def main():
     console = Console()

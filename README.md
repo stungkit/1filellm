@@ -259,6 +259,14 @@ This XML structure provides clear delineation of different content types and sou
 
 ## Recent Changes
 
+- **2025-01-20:**
+  - Added file and directory exclusion functionality to reduce context window usage
+  - Added ability to exclude auto-generated files (*.pb.go, etc.)
+  - Added ability to exclude mock files and test directories
+  - Updated documentation with exclusion configuration instructions
+- **2025-01-17:**
+  - Added ability to exclude specific directories from processing
+  - Updated directory traversal logic to respect exclusion rules
 - **2024-07-29:**
   - Updated output format to encapsulate content in XML tags. This change was implemented due to evaluations showing that LLMs perform better with prompts structured in XML.
   - Added tests for GitHub issues and GitHub pull requests to improve robustness and reliability.
@@ -282,6 +290,8 @@ This XML structure provides clear delineation of different content types and sou
 
 ## Notes
 - For Repos, Modify this line of code to add or remove filetypes processed: ``` allowed_extensions = ['.py', '.txt', '.js', '.rst', '.sh', '.md', '.pyx', '.html', '.yaml','.json', '.jsonl', '.ipynb', '.h', '.c', '.sql', '.csv'] ```
+- For excluding files, modify the excluded_patterns list to customize which files are filtered out
+- For excluding directories, modify the EXCLUDED_DIRS list to customize which directories are skipped
 - For Web scraping, Modify this line of code to change how many links deep from the starting URL to include ``` max_depth = 2 ```
 - Token counts are displayed in the console for both output files.
 
