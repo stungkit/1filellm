@@ -22,6 +22,10 @@ from rich.prompt import Prompt
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 import xml.etree.ElementTree as ET
 
+# --- Configuration Flags ---
+ENABLE_COMPRESSION_AND_NLTK = False # Set to True to enable NLTK download, stopword removal, and compressed output
+# --- End Configuration Flags ---
+
 EXCLUDED_DIRS = ["dist", "node_modules", ".git", "__pycache__"]  # Add any other directories to exclude here
 
 def safe_file_read(filepath, fallback_encoding='latin1'):
@@ -32,8 +36,13 @@ def safe_file_read(filepath, fallback_encoding='latin1'):
         with open(filepath, "r", encoding=fallback_encoding) as file:
             return file.read()
 
-nltk.download("stopwords", quiet=True)
-stop_words = set(stopwords.words("english"))
+stop_words = set() # Initialize as empty set by default
+if ENABLE_COMPRESSION_AND_NLTK:
+    try:
+        nltk.download("stopwords", quiet=True)
+        stop_words = set(stopwords.words("english"))
+    except Exception as e:
+        print(f"[bold yellow]Warning:[/bold yellow] Failed to download or load NLTK stopwords. Compression will proceed without stopword removal. Error: {e}")
 
 TOKEN = os.getenv('GITHUB_TOKEN', 'default_token_here')
 if TOKEN == 'default_token_here':
@@ -269,9 +278,12 @@ def preprocess_text(input_file, output_file):
         text = re.sub(r"[^a-zA-Z0-9\s_.,!?:;@#$%^&*()+\-=[\]{}|\\<>`~'\"/]+", "", text)
         text = re.sub(r"\s+", " ", text)
         text = text.lower()
-        words = text.split()
-        words = [word for word in words if word not in stop_words]
-        return " ".join(words)
+        # Only remove stopwords if the feature is enabled and stopwords were loaded
+        if ENABLE_COMPRESSION_AND_NLTK and stop_words:
+            words = text.split()
+            words = [word for word in words if word not in stop_words]
+            text = " ".join(words)
+        return text # Return the possibly modified text
 
     try:
         # Try to parse the input as XML
@@ -717,25 +729,36 @@ def main():
             # Write the uncompressed output
             with open(output_file, "w", encoding="utf-8") as file:
                 file.write(final_output)
+            progress.update(task, advance=50) # Move progress update here
 
+            # --- Conditional Compression Block ---
+            if ENABLE_COMPRESSION_AND_NLTK:
+                console.print("\n[bright_magenta]Compression and NLTK processing enabled.[/bright_magenta]")
+                # Process the compressed output
+                preprocess_text(output_file, processed_file)
 
-            # Process the compressed output
-            preprocess_text(output_file, processed_file)
-
-            progress.update(task, advance=50)
-
-            compressed_text = safe_file_read(processed_file)
-            compressed_token_count = get_token_count(compressed_text)
-            console.print(f"\n[bright_green]Compressed Token Count:[/bright_green] [bold bright_cyan]{compressed_token_count}[/bold bright_cyan]")
+                compressed_text = safe_file_read(processed_file)
+                compressed_token_count = get_token_count(compressed_text)
+                console.print(f"\n[bright_green]Compressed Token Count:[/bright_green] [bold bright_cyan]{compressed_token_count}[/bold bright_cyan]")
+            else:
+                # If not compressing, advance progress proportionally
+                progress.update(task, advance=25) # Adjust progress if needed
+            # --- End Conditional Compression Block ---
 
             uncompressed_text = safe_file_read(output_file)
             uncompressed_token_count = get_token_count(uncompressed_text)
+            # Always print uncompressed token count
             console.print(f"[bright_green]Uncompressed Token Count:[/bright_green] [bold bright_cyan]{uncompressed_token_count}[/bold bright_cyan]")
 
-            console.print(f"\n[bold bright_yellow]{processed_file}[/bold bright_yellow] and [bold bright_blue]{output_file}[/bold bright_blue] have been created in the working directory.")
+            # Adjust the final output message
+            if ENABLE_COMPRESSION_AND_NLTK:
+                console.print(f"\n[bold bright_yellow]{processed_file}[/bold bright_yellow] and [bold bright_blue]{output_file}[/bold bright_blue] have been created.")
+            else:
+                console.print(f"\n[bold bright_blue]{output_file}[/bold bright_blue] has been created.")
 
             pyperclip.copy(uncompressed_text)
             console.print(f"\n[bright_white]The contents of [bold bright_blue]{output_file}[/bold bright_blue] have been copied to the clipboard.[/bright_white]")
+            progress.update(task, advance=25) # Final progress step
 
         except Exception as e:
             console.print(f"\n[bold red]An error occurred:[/bold red] {str(e)}")
