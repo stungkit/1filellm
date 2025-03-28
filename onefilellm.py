@@ -26,6 +26,24 @@ import xml.etree.ElementTree as ET
 ENABLE_COMPRESSION_AND_NLTK = False # Set to True to enable NLTK download, stopword removal, and compressed output
 # --- End Configuration Flags ---
 
+# --- Output Format Notes ---
+# This script has been modified to produce plain text output format instead of XML format.
+# The original version produced output with XML-like tags and escaped special characters,
+# which made code in the output harder to read when pasted into LLMs or other text-only interfaces.
+#
+# Benefits of plain text output:
+# 1. Original code is preserved exactly as-is (no escaping of characters like < > &)
+# 2. Easier to read and parse by humans and AI models
+# 3. No issues with XML tag interpretation or markup conflicts
+# 4. Better compatibility with clipboard operations
+#
+# The script still maintains structure with markdown-style comment headers, e.g.:
+# # --- Source: GitHub Repository https://github.com/user/repo ---
+# # --- GitHub File: src/main.py ---
+# def hello_world():
+#     print("Hello, world!")
+# --- End Output Format Notes ---
+
 EXCLUDED_DIRS = ["dist", "node_modules", ".git", "__pycache__"]  # Add any other directories to exclude here
 
 def safe_file_read(filepath, fallback_encoding='latin1'):
@@ -38,6 +56,22 @@ def safe_file_read(filepath, fallback_encoding='latin1'):
 
 stop_words = set() # Initialize as empty set by default
 if ENABLE_COMPRESSION_AND_NLTK:
+    # The NLTK download and stopwords loading is now controlled by a configuration flag.
+    # This is beneficial because:
+    # 1. It avoids unnecessary downloads when compression is not needed
+    # 2. It speeds up the script execution when compression is not required
+    # 3. It provides a cleaner output experience focused on raw code readability
+    #
+    # When ENABLE_COMPRESSION_AND_NLTK = True:
+    # - NLTK stopwords will be downloaded (if not already cached)
+    # - Compression will be applied producing compressed_output.txt
+    # - Both compressed and uncompressed token counts will be displayed
+    #
+    # When ENABLE_COMPRESSION_AND_NLTK = False (default):
+    # - No NLTK downloads occur
+    # - No stopword removal/compression is performed
+    # - Only the uncompressed_output.txt file is generated
+    # - Focus is entirely on producing clean, readable code output
     try:
         nltk.download("stopwords", quiet=True)
         stop_words = set(stopwords.words("english"))
@@ -139,7 +173,7 @@ def process_github_repo(repo_url):
     if branch_or_tag:
         contents_url = f"{contents_url}?ref={branch_or_tag}"
 
-    repo_content = [f'<source type="github_repository" url="{repo_url}">']
+    repo_content = [f"# --- Source: GitHub Repository {repo_url} ---"]
 
     def process_directory(url, repo_content):
         response = requests.get(url, headers=headers)
@@ -157,27 +191,25 @@ def process_github_repo(repo_url):
                 temp_file = f"temp_{file['name']}"
                 download_file(file["download_url"], temp_file)
 
-                repo_content.append(f'<file name="{escape_xml(file["path"])}">') 
+                repo_content.append(f"# --- GitHub File: {file['path']} ---") 
                 if file["name"].endswith(".ipynb"):
-                    repo_content.append(escape_xml(process_ipynb_file(temp_file)))
+                    repo_content.append(process_ipynb_file(temp_file))
                 else:
                     with open(temp_file, "r", encoding='utf-8', errors='ignore') as f:
-                        repo_content.append(escape_xml(f.read()))
-                repo_content.append('</file>')
+                        repo_content.append(f.read())
                 os.remove(temp_file)
 
             elif file["type"] == "dir":
                 process_directory(file["url"], repo_content)
 
     process_directory(contents_url, repo_content)
-    repo_content.append('</source>')
     print("All files processed.")
 
     return "\n".join(repo_content)
 
 def process_local_folder(local_path):
     def process_local_directory(local_path):
-        content = [f'<source type="local_directory" path="{escape_xml(local_path)}">']
+        content = [f"# --- Source: Local Directory {local_path} ---"]
         for root, dirs, files in os.walk(local_path):
             # Exclude directories
             dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
@@ -188,17 +220,14 @@ def process_local_folder(local_path):
 
                     file_path = os.path.join(root, file)
                     relative_path = os.path.relpath(file_path, local_path)
-                    content.append(f'<file name="{escape_xml(relative_path)}">')
+                    content.append(f"# --- Local File: {relative_path} ---")
 
                     if file.endswith(".ipynb"):
-                        content.append(escape_xml(process_ipynb_file(file_path)))
+                        content.append(process_ipynb_file(file_path))
                     else:
                         with open(file_path, "r", encoding='utf-8', errors='ignore') as f:
-                            content.append(escape_xml(f.read()))
+                            content.append(f.read())
 
-                    content.append('</file>')
-
-        content.append('</source>')
         return '\n'.join(content)
 
     formatted_content = process_local_directory(local_path)
@@ -219,11 +248,8 @@ def process_arxiv_pdf(arxiv_abs_url):
         for page in range(len(pdf_reader.pages)):
             text.append(pdf_reader.pages[page].extract_text())
 
-    formatted_text = f'<source type="arxiv_paper" url="{arxiv_abs_url}">\n'
-    formatted_text += '<paper>\n'
-    formatted_text += escape_xml(' '.join(text))
-    formatted_text += '\n</paper>\n'
-    formatted_text += '</source>'
+    formatted_text = f"# --- Source: ArXiv Paper {arxiv_abs_url} ---\n\n"
+    formatted_text += ' '.join(text)
 
     os.remove('temp.pdf')
     print("ArXiv paper processed successfully.")
@@ -258,11 +284,8 @@ def fetch_youtube_transcript(url):
         formatter = TextFormatter()
         transcript = formatter.format_transcript(transcript_list)
         
-        formatted_text = f'<source type="youtube_transcript" url="{escape_xml(url)}">\n'
-        formatted_text += '<transcript>\n'
-        formatted_text += escape_xml(transcript)
-        formatted_text += '\n</transcript>\n'
-        formatted_text += '</source>'
+        formatted_text = f"# --- Source: YouTube Transcript {url} ---\n\n"
+        formatted_text += transcript
         
         return formatted_text
     except Exception as e:
@@ -308,13 +331,16 @@ def preprocess_text(input_file, output_file):
         print("XML parsing failed. Text preprocessing completed without XML structure.")
 
 def get_token_count(text, disallowed_special=[], chunk_size=1000):
+    # Modified to work with plain text format instead of XML
+    # Previously, this function would strip XML tags before counting tokens:
+    # text_without_tags = re.sub(r'<[^>]+>', '', text)
+    #
+    # Since we now use plain text format with no XML tags, we can count tokens directly
+    # from the text, leading to more accurate token counts and better performance.
     enc = tiktoken.get_encoding("cl100k_base")
 
-    # Remove XML tags
-    text_without_tags = re.sub(r'<[^>]+>', '', text)
-
     # Split the text into smaller chunks
-    chunks = [text_without_tags[i:i+chunk_size] for i in range(0, len(text_without_tags), chunk_size)]
+    chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
     total_tokens = 0
 
     for chunk in chunks:
@@ -355,7 +381,7 @@ def crawl_and_extract_text(base_url, max_depth, include_pdfs, ignore_epubs):
     visited_urls = set()
     urls_to_visit = [(base_url, 0)]
     processed_urls = []
-    all_text = [f'<source type="web_documentation" url="{escape_xml(base_url)}">']
+    all_text = [f"# --- Source: Web Crawl {base_url} ---"]
 
     while urls_to_visit:
         current_url, current_depth = urls_to_visit.pop(0)
@@ -380,9 +406,8 @@ def crawl_and_extract_text(base_url, max_depth, include_pdfs, ignore_epubs):
                         comment.extract()
                     text = soup.get_text(separator='\n', strip=True)
 
-                all_text.append(f'<page url="{escape_xml(clean_url)}">')
-                all_text.append(escape_xml(text))
-                all_text.append('</page>')
+                all_text.append(f"\n# --- Web Page: {clean_url} ---")
+                all_text.append(text)
                 processed_urls.append(clean_url)
                 print(f"Processed: {clean_url}")
 
@@ -395,7 +420,7 @@ def crawl_and_extract_text(base_url, max_depth, include_pdfs, ignore_epubs):
             except requests.RequestException as e:
                 print(f"Failed to retrieve {clean_url}: {e}")
 
-    all_text.append('</source>')
+    # No closing tag needed for plain text format
     formatted_content = '\n'.join(all_text)
 
     return {
@@ -443,17 +468,14 @@ def process_doi_or_pmid(identifier):
             for page in range(len(pdf_reader.pages)):
                 text += pdf_reader.pages[page].extract_text()
 
-        formatted_text = f'<source type="sci_hub_paper" identifier="{escape_xml(identifier)}">\n'
-        formatted_text += '<paper>\n'
-        formatted_text += escape_xml(text)
-        formatted_text += '\n</paper>\n'
-        formatted_text += '</source>'
+        formatted_text = f"# --- Source: Sci-Hub Paper {identifier} ---\n\n"
+        formatted_text += text
 
         os.remove(pdf_filename)
         print(f"Identifier {identifier} processed successfully.")
         return formatted_text
     except (requests.RequestException, ValueError) as e:
-        error_text = f'<source type="sci_hub_paper" identifier="{escape_xml(identifier)}">\n'
+        error_text = f"# --- Source: Sci-Hub Paper Error {identifier} ---\n# Error: {str(e)}"
         error_text += f'<error>{escape_xml(str(e))}</error>\n'
         error_text += '</source>'
         print(f"Error processing identifier {identifier}: {str(e)}")
@@ -486,54 +508,57 @@ def process_github_pull_request(pull_request_url):
     all_comments = comments_data + review_comments_data
     all_comments.sort(key=lambda comment: comment.get("position") or float("inf"))
 
-    formatted_text = f'<source type="github_pull_request" url="{pull_request_url}">\n'
-    formatted_text += '<pull_request_info>\n'
-    formatted_text += f'<title>{escape_xml(pull_request_data["title"])}</title>\n'
-    formatted_text += f'<description>{escape_xml(pull_request_data["body"])}</description>\n'
-    formatted_text += '<merge_details>\n'
-    formatted_text += f'{escape_xml(pull_request_data["user"]["login"])} wants to merge {pull_request_data["commits"]} commit into {repo_owner}:{pull_request_data["base"]["ref"]} from {pull_request_data["head"]["label"]}\n'
-    formatted_text += '</merge_details>\n'
-    formatted_text += '<diff_and_comments>\n'
+    formatted_text = f"# --- Source: GitHub Pull Request {pull_request_url} ---\n"
+    formatted_text += f"# Title: {pull_request_data['title']}\n"
+    formatted_text += f"# Description:\n# ---\n{pull_request_data['body']}\n# ---\n"
+    formatted_text += f"# Merge Details: {pull_request_data['user']['login']} wants to merge {pull_request_data['commits']} commit into {repo_owner}:{pull_request_data['base']['ref']} from {pull_request_data['head']['label']}\n\n"
 
+    # Add the diff with simplified comments
+    formatted_text += "# --- Pull Request Diff ---\n"
     diff_lines = pull_request_diff.split("\n")
     comment_index = 0
     for line in diff_lines:
-        formatted_text += f'{escape_xml(line)}\n'
+        formatted_text += f"{line}\n"
+        # Add any comments for this line in a more readable format
         while comment_index < len(all_comments) and all_comments[comment_index].get("position") == diff_lines.index(line):
             comment = all_comments[comment_index]
-            formatted_text += f'<review_comment>\n'
-            formatted_text += f'<author>{escape_xml(comment["user"]["login"])}</author>\n'
-            formatted_text += f'<content>{escape_xml(comment["body"])}</content>\n'
-            formatted_text += f'<path>{escape_xml(comment["path"])}</path>\n'
-            formatted_text += f'<line>{comment["original_line"]}</line>\n'
-            formatted_text += '</review_comment>\n'
+            formatted_text += f"# COMMENT by {comment['user']['login']} on {comment['path']} line {comment['original_line']}:\n"
+            # Process comment body and handle newlines
+            comment_body = comment['body']
+            comment_lines = comment_body.split('\n')
+            formatted_text += f"# {comment_lines[0]}\n"
+            for line in comment_lines[1:]:
+                formatted_text += f"# {line}\n"
             comment_index += 1
 
-    formatted_text += '</diff_and_comments>\n'
-    formatted_text += '</pull_request_info>\n'
-
+    # Add repository content with a header
     repo_url = f"https://github.com/{repo_owner}/{repo_name}"
     repo_content = process_github_repo(repo_url)
     
-    formatted_text += '<repository>\n'
+    formatted_text += "\n# --- Associated Repository Content ---\n"
     formatted_text += repo_content
-    formatted_text += '</repository>\n'
-    formatted_text += '</source>'
 
     print(f"Pull request {pull_request_number} and repository content processed successfully.")
 
     return formatted_text
     
 def escape_xml(text):
-    return (
-        str(text)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        # Remove the following lines to stop converting apostrophes and quotes
-        # .replace("\"", "&quot;")
-        # .replace("'", "&apos;")
-    )
+    # IMPORTANT: This function has been modified to return unescaped text for better code readability.
+    # 
+    # Original functionality would escape XML special characters as follows:
+    # < becomes &lt;
+    # > becomes &gt;
+    # & becomes &amp;
+    # This caused code snippets in the output to become unreadable, especially when
+    # code contained XML/HTML tags, comparison operators, or other special characters.
+    #
+    # For example, original code like:
+    #    if (x < 10 && y > 20) { ... }
+    # Would be turned into:
+    #    if (x &lt; 10 &amp;&amp; y &gt; 20) { ... }
+    #
+    # Now we simply pass through the text unchanged to maintain code readability:
+    return str(text)
 
 def process_github_issue(issue_url):
     url_parts = issue_url.split("/")
@@ -551,46 +576,29 @@ def process_github_issue(issue_url):
     comments_response = requests.get(comments_url, headers=headers)
     comments_data = comments_response.json()
 
-    formatted_text = f'<source type="github_issue" url="{issue_url}">\n'
-    formatted_text += '<issue_info>\n'
-    formatted_text += f'<title>{escape_xml(issue_data["title"])}</title>\n'
-    formatted_text += f'<description>{escape_xml(issue_data["body"])}</description>\n'
-    formatted_text += '<comments>\n'
+    formatted_text = f"# --- Source: GitHub Issue {issue_url} ---\n"
+    formatted_text += f"# Title: {issue_data['title']}\n"
+    formatted_text += f"# Description:\n# ---\n{issue_data['body']}\n# ---\n"
 
-    for comment in comments_data:
-        formatted_text += '<comment>\n'
-        formatted_text += f'<author>{escape_xml(comment["user"]["login"])}</author>\n'
-        formatted_text += f'<content>{escape_xml(comment["body"])}</content>\n'
+    # Add comments in a readable format
+    if comments_data:
+        formatted_text += "\n# --- Issue Comments ---\n"
+        for comment in comments_data:
+            formatted_text += f"# COMMENT by {comment['user']['login']}:\n"
+            # Process comment body and handle newlines
+            comment_body = comment['body']
+            comment_lines = comment_body.split('\n')
+            formatted_text += f"# {comment_lines[0]}\n"
+            for line in comment_lines[1:]:
+                formatted_text += f"# {line}\n"
+            formatted_text += "\n"
 
-        code_snippets = re.findall(r'https://github.com/.*#L\d+-L\d+', comment['body'])
-        for snippet_url in code_snippets:
-            url_parts = snippet_url.split("#")
-            file_url = url_parts[0].replace("/blob/", "/raw/")
-            line_range = url_parts[1]
-            start_line, end_line = map(int, line_range.split("-")[0][1:]), map(int, line_range.split("-")[1][1:])
-
-            file_response = requests.get(file_url, headers=headers)
-            file_content = file_response.text
-
-            code_lines = file_content.split("\n")[start_line-1:end_line]
-            code_snippet = "\n".join(code_lines)
-
-            formatted_text += '<code_snippet>\n'
-            formatted_text += f'<![CDATA[{code_snippet}]]>\n'
-            formatted_text += '</code_snippet>\n'
-
-        formatted_text += '</comment>\n'
-
-    formatted_text += '</comments>\n'
-    formatted_text += '</issue_info>\n'
-
+    # Add repository content with a header
     repo_url = f"https://github.com/{repo_owner}/{repo_name}"
     repo_content = process_github_repo(repo_url)
     
-    formatted_text += '<repository>\n'
+    formatted_text += "\n# --- Associated Repository Content ---\n"
     formatted_text += repo_content
-    formatted_text += '</repository>\n'
-    formatted_text += '</source>'
 
     print(f"Issue {issue_number} and repository content processed successfully.")
 
@@ -733,6 +741,13 @@ def main():
 
             # --- Conditional Compression Block ---
             if ENABLE_COMPRESSION_AND_NLTK:
+                # When the compression flag is enabled, we perform additional processing:
+                # 1. We generate a compressed version of the output with stopwords removed
+                # 2. We calculate token counts for both compressed and uncompressed versions
+                # 3. We inform the user about both files being created
+                #
+                # This is particularly useful for fitting more content within token limits of LLMs,
+                # but at the cost of readability and potentially altered code semantics.
                 console.print("\n[bright_magenta]Compression and NLTK processing enabled.[/bright_magenta]")
                 # Process the compressed output
                 preprocess_text(output_file, processed_file)
@@ -741,6 +756,12 @@ def main():
                 compressed_token_count = get_token_count(compressed_text)
                 console.print(f"\n[bright_green]Compressed Token Count:[/bright_green] [bold bright_cyan]{compressed_token_count}[/bold bright_cyan]")
             else:
+                # When the compression flag is disabled (default):
+                # 1. We skip NLTK downloads and stopword processing entirely
+                # 2. We only generate the uncompressed output file with raw, readable code
+                # 3. The output maintains exact formatting and syntax of the original code
+                #
+                # This is the recommended setting for code readability and preservation.
                 # If not compressing, advance progress proportionally
                 progress.update(task, advance=25) # Adjust progress if needed
             # --- End Conditional Compression Block ---
