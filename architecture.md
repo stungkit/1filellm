@@ -138,7 +138,7 @@ The tool relies on several external libraries and tools to perform its functions
 - **Pyperclip**: A cross-platform clipboard module for Python.
 - **Wget**: A utility for downloading files from the web.
 - **Tqdm**: Provides progress bars for loops.
-- **Rich**: Used for rich text and beautiful formatting in the terminal.
+- **Rich**: Used for rich text and aesthetic formatting in the terminal.
 
 ---
 
