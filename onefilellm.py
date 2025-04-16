@@ -597,11 +597,10 @@ def process_doi_or_pmid(identifier):
 
             print(f"  Downloading PDF from: {pdf_url}")
             # Download the PDF file
-            # Use stream=True and check content-type before downloading large file
-            pdf_response = requests.get(pdf_url, headers=headers, timeout=120, stream=True) # Longer timeout for PDF download
+            pdf_response = requests.get(pdf_url, headers=headers, timeout=120) # Longer timeout for PDF download
             pdf_response.raise_for_status()
 
-            # Check content type again before downloading fully
+            # Check content type again
             if 'application/pdf' not in pdf_response.headers.get('Content-Type', '').lower():
                  print(f"  [bold yellow]Warning:[/bold yellow] Downloaded content is not PDF from {pdf_url}, trying next domain.")
                  pdf_response.close() # Close the stream
@@ -609,8 +608,7 @@ def process_doi_or_pmid(identifier):
 
 
             with open(pdf_filename, 'wb') as f:
-                 for chunk in pdf_response.iter_content(chunk_size=8192):
-                     f.write(chunk)
+                f.write(pdf_response.content)
 
             print("  Extracting text from PDF...")
             with open(pdf_filename, 'rb') as pdf_file:
@@ -1031,16 +1029,7 @@ def main():
             elif os.path.isfile(input_path): # Handle single local file
                  print(f"Processing single local file: {input_path}")
                  relative_path = os.path.basename(input_path)
-                 file_content = "" # Initialize
-                 try:
-                     if input_path.endswith(".ipynb"):
-                         file_content = process_ipynb_file(input_path)
-                     else:
-                         file_content = safe_file_read(input_path)
-                 except Exception as e:
-                    print(f"[bold red]Error reading file {input_path}: {e}[/bold red]")
-                    file_content = f'<error>Failed to read file: {escape_xml(str(e))}</error>'
-
+                 file_content = safe_file_read(input_path)
                  # Wrap single file in basic source/file XML
                  final_output = (f'<source type="local_file" path="{escape_xml(input_path)}">\n'
                                  f'<file path="{escape_xml(relative_path)}">\n'
