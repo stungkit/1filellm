@@ -21,6 +21,7 @@ from rich.text import Text
 from rich.prompt import Prompt
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 import xml.etree.ElementTree as ET # Keep for preprocess_text if needed
+import argparse # Added for command-line arguments
 
 # --- Configuration Flags ---
 ENABLE_COMPRESSION_AND_NLTK = False # Set to True to enable NLTK download, stopword removal, and compressed output
@@ -107,7 +108,7 @@ def process_github_repo(repo_url):
             branch_or_tag = repo_url_parts[3]
         if len(repo_url_parts) > 4:
             subdirectory = "/".join(repo_url_parts[4:])
-    
+
     contents_url = f"{api_base_url}{repo_name}/contents"
     if subdirectory:
         contents_url = f"{contents_url}/{subdirectory}"
@@ -404,6 +405,10 @@ def process_web_pdf(url):
 def crawl_and_extract_text(base_url, max_depth, include_pdfs, ignore_epubs):
     """
     Crawls a website starting from base_url, extracts text, and wraps in XML.
+    max_depth: Controls how many levels of links to follow from the base_url.
+               0 means only process the base_url itself.
+               1 means process the base_url and any links found on it (within the same domain/path rules).
+               etc.
     """
     visited_urls = set()
     urls_to_visit = [(base_url, 0)]
@@ -424,9 +429,9 @@ def crawl_and_extract_text(base_url, max_depth, include_pdfs, ignore_epubs):
         if clean_url in visited_urls:
             continue
 
-        # Check domain and depth *after* cleaning URL
-        if not is_same_domain(base_url, clean_url) or not is_within_depth(base_url, clean_url, max_depth):
-             # print(f"Skipping (domain/depth): {clean_url}") # Optional debug
+        # Check domain (depth check happens later before adding to queue)
+        if not is_same_domain(base_url, clean_url):
+             # print(f"Skipping (domain): {clean_url}") # Optional debug
              continue
 
         if ignore_epubs and clean_url.lower().endswith('.epub'):
@@ -450,6 +455,7 @@ def crawl_and_extract_text(base_url, max_depth, include_pdfs, ignore_epubs):
                 else:
                     print(f"  Skipping PDF (include_pdfs=False): {clean_url}")
                     page_content += '\n<skipped>PDF ignored by configuration</skipped>\n'
+                # NOTE: Don't look for links within PDFs in this implementation
 
             # Handle HTML pages
             else:
@@ -473,7 +479,7 @@ def crawl_and_extract_text(base_url, max_depth, include_pdfs, ignore_epubs):
                     text = soup.get_text(separator='\n', strip=True)
                     page_content += f'\n{text}\n' # Append raw extracted text
 
-                    # Find links for the next level if depth allows
+                    # Find links for the next level *only if* current depth is less than max_depth
                     if current_depth < max_depth:
                         for link in soup.find_all('a', href=True):
                             try:
@@ -488,11 +494,14 @@ def crawl_and_extract_text(base_url, max_depth, include_pdfs, ignore_epubs):
                                     new_clean_url = urlparse(new_url)._replace(fragment="").geturl()
 
                                     if new_clean_url not in visited_urls:
-                                        # Check domain/depth *before* adding to queue
+                                        # Check domain and depth *before* adding to queue
+                                        # Use the *original* base_url for depth calculation
                                         if is_same_domain(base_url, new_clean_url) and is_within_depth(base_url, new_clean_url, max_depth):
                                              if not (ignore_epubs and new_clean_url.lower().endswith('.epub')):
-                                                # Add only if valid and not already visited
-                                                if (new_clean_url, current_depth + 1) not in urls_to_visit:
+                                                # Add only if valid and not already visited/queued
+                                                # Check against urls_to_visit to avoid duplicates (simple check)
+                                                is_queued = any(item[0] == new_clean_url for item in urls_to_visit)
+                                                if not is_queued:
                                                      urls_to_visit.append((new_clean_url, current_depth + 1))
                             except Exception as link_err: # Catch errors parsing individual links
                                 print(f"  [bold yellow]Warning:[/bold yellow] Error parsing link '{link.get('href')}': {link_err}")
@@ -569,6 +578,12 @@ def process_doi_or_pmid(identifier):
                              pdf_url = urljoin(base_url, pdf_url_part)
 
             if not pdf_url:
+                 # Try finding direct links ending in .pdf (less reliable)
+                 pdf_links = soup.find_all('a', href=lambda x: x and x.lower().endswith('.pdf'))
+                 if pdf_links:
+                     pdf_url = urljoin(base_url, pdf_links[0]['href']) # Take the first one
+
+            if not pdf_url:
                  print(f"  Could not find PDF link on page from {base_url}")
                  continue # Try next domain
 
@@ -582,17 +597,20 @@ def process_doi_or_pmid(identifier):
 
             print(f"  Downloading PDF from: {pdf_url}")
             # Download the PDF file
-            pdf_response = requests.get(pdf_url, headers=headers, timeout=120) # Longer timeout for PDF download
+            # Use stream=True and check content-type before downloading large file
+            pdf_response = requests.get(pdf_url, headers=headers, timeout=120, stream=True) # Longer timeout for PDF download
             pdf_response.raise_for_status()
 
-            # Check content type again
+            # Check content type again before downloading fully
             if 'application/pdf' not in pdf_response.headers.get('Content-Type', '').lower():
                  print(f"  [bold yellow]Warning:[/bold yellow] Downloaded content is not PDF from {pdf_url}, trying next domain.")
+                 pdf_response.close() # Close the stream
                  continue
 
 
             with open(pdf_filename, 'wb') as f:
-                f.write(pdf_response.content)
+                 for chunk in pdf_response.iter_content(chunk_size=8192):
+                     f.write(chunk)
 
             print("  Extracting text from PDF...")
             with open(pdf_filename, 'rb') as pdf_file:
@@ -888,6 +906,30 @@ def is_allowed_filetype(filename):
 def main():
     console = Console()
 
+    # --- Command Line Argument Parsing ---
+    parser = argparse.ArgumentParser(
+        description="onefilellm - Content Aggregator: Processes various inputs (local folders, GitHub repos/PRs/issues, web URLs, ArXiv, YouTube, DOI/PMID) and combines them into a single XML-formatted output file.",
+        formatter_class=argparse.RawDescriptionHelpFormatter # Keep formatting
+    )
+    parser.add_argument(
+        "input_path",
+        nargs='?', # Make positional argument optional
+        help="The local path (folder or file) or URL to process."
+    )
+    parser.add_argument(
+        "--web-crawling-max-depth",
+        type=int,
+        default=1,
+        dest="web_crawl_depth", # Store in args.web_crawl_depth
+        help="Maximum depth for web crawling (0 for current page only). Default: 1. Applies only when input is a web URL."
+    )
+    # Add other arguments here if needed in the future
+    # parser.add_argument('--some-other-option', action='store_true', help='Another option example')
+
+    args = parser.parse_args()
+    # --- End Argument Parsing ---
+
+
     # Updated intro text to reflect XML output
     intro_text = Text("\nProcesses Inputs and Wraps Content in XML:\n", style="dodger_blue1")
     input_types = [
@@ -903,7 +945,8 @@ def main():
 
     for input_type, color in input_types:
         intro_text.append(f"\n{input_type}", style=color)
-    intro_text.append("\n\nOutput is saved to file and copied to clipboard.", style="dim")
+    intro_text.append("\n\nUse --web-crawling-max-depth N to control web crawl depth.", style="dim")
+    intro_text.append("\nOutput is saved to file and copied to clipboard.", style="dim")
     intro_text.append("\nContent within XML tags remains unescaped for readability.", style="dim")
 
     intro_panel = Panel(
@@ -916,12 +959,19 @@ def main():
     )
     console.print(intro_panel)
 
-    if len(sys.argv) > 1:
-        input_path = sys.argv[1]
+    # Get input path from args or prompt if missing
+    if args.input_path:
+        input_path = args.input_path
     else:
         input_path = Prompt.ask("\n[bold dodger_blue1]Enter the path or URL[/bold dodger_blue1]", console=console)
 
-    console.print(f"\n[bold bright_green]Processing:[/bold bright_green] [bold bright_yellow]{input_path}[/bold bright_yellow]\n")
+    console.print(f"\n[bold bright_green]Processing:[/bold bright_green] [bold bright_yellow]{input_path}[/bold bright_yellow]")
+    # Print web crawl depth if applicable (helps user confirm)
+    if urlparse(input_path).scheme in ["http", "https"] and not ("youtube.com" in input_path or "youtu.be" in input_path or "arxiv.org/abs/" in input_path or input_path.lower().endswith('.pdf')):
+        console.print(f"[bold bright_green]Web Crawl Max Depth:[/bold bright_green] [bold bright_cyan]{args.web_crawl_depth}[/bold bright_cyan]\n")
+    else:
+         console.print() # Just add a newline for spacing
+
 
     # Define output filenames
     output_file = "output.xml" # Changed extension to reflect content
@@ -955,15 +1005,20 @@ def main():
                 elif "arxiv.org/abs/" in input_path:
                     final_output = process_arxiv_pdf(input_path)
                 elif input_path.lower().endswith(('.pdf')): # Direct PDF link
-                     # Simplified: wrap direct PDF processing if needed, or treat as web crawl
-                     print("[bold yellow]Direct PDF URL detected - treating as single-page crawl.[/bold yellow]")
+                     # Treat direct PDF link as a crawl of depth 0, ignore cmd line depth
+                     print("[bold yellow]Direct PDF URL detected - treating as single-page crawl (depth 0).[/bold yellow]")
                      crawl_result = crawl_and_extract_text(input_path, max_depth=0, include_pdfs=True, ignore_epubs=True)
                      final_output = crawl_result['content']
                      if crawl_result['processed_urls']:
                           with open(urls_list_file, 'w', encoding='utf-8') as urls_file:
                              urls_file.write('\n'.join(crawl_result['processed_urls']))
-                else: # Assume general web URL for crawling
-                    crawl_result = crawl_and_extract_text(input_path, max_depth=1, include_pdfs=True, ignore_epubs=True) # Default max_depth=1
+                else: # Assume general web URL for crawling - USE THE ARGUMENT HERE
+                    crawl_result = crawl_and_extract_text(
+                        input_path,
+                        max_depth=args.web_crawl_depth, # Use the command-line argument
+                        include_pdfs=True,
+                        ignore_epubs=True
+                    )
                     final_output = crawl_result['content']
                     if crawl_result['processed_urls']:
                          with open(urls_list_file, 'w', encoding='utf-8') as urls_file:
@@ -976,7 +1031,16 @@ def main():
             elif os.path.isfile(input_path): # Handle single local file
                  print(f"Processing single local file: {input_path}")
                  relative_path = os.path.basename(input_path)
-                 file_content = safe_file_read(input_path)
+                 file_content = "" # Initialize
+                 try:
+                     if input_path.endswith(".ipynb"):
+                         file_content = process_ipynb_file(input_path)
+                     else:
+                         file_content = safe_file_read(input_path)
+                 except Exception as e:
+                    print(f"[bold red]Error reading file {input_path}: {e}[/bold red]")
+                    file_content = f'<error>Failed to read file: {escape_xml(str(e))}</error>'
+
                  # Wrap single file in basic source/file XML
                  final_output = (f'<source type="local_file" path="{escape_xml(input_path)}">\n'
                                  f'<file path="{escape_xml(relative_path)}">\n'
