@@ -4,7 +4,8 @@ OneFileLLM is a command-line tool designed to streamline the creation of informa
 ## Features
 
 - Automatic source type detection based on provided path, URL, or identifier
-- Support for local files and/or directories, GitHub repositories, GitHub pull requests, GitHub issues, academic papers from ArXiv, YouTube transcripts, web page documentation, Sci-Hub hosted papers via DOI or PMID
+- Support for processing **multiple inputs simultaneously** via the command line.
+- Handles various sources: local files/directories, GitHub repositories/PRs/issues, ArXiv papers, YouTube transcripts, web pages (crawling), Sci-Hub papers (DOI/PMID).
 - Handling of multiple file formats, including Jupyter Notebooks (.ipynb), and PDFs
 - Web crawling functionality to extract content from linked pages up to a specified depth
 - Integration with Sci-Hub for automatic downloading of research papers using DOIs or PMIDs
@@ -12,6 +13,7 @@ OneFileLLM is a command-line tool designed to streamline the creation of informa
 - Automatic copying of uncompressed text to the clipboard for easy pasting into LLMs
 - Token count reporting for both compressed and uncompressed outputs
 - XML encapsulation of output for improved LLM performance
+- Aggregates results from multiple inputs into a single XML output file.
 
 ![image](https://github.com/jimmc414/1filellm/assets/6346529/73c24bcb-7be7-4b67-8591-3f1404b98fba)
 
@@ -138,14 +140,13 @@ python onefilellm.py
 ![image](https://github.com/jimmc414/1filellm/assets/6346529/b4e281eb-8a41-4612-9d73-b2c115691013)
 
 
-Or pass the URL or path in at the command line for the same behavior with less human interaction:
-
+Pass one or more URLs, paths, DOIs, or PMIDs as command-line arguments:
 ```bash
-python onefilellm.py https://github.com/jimmc414/1filellm
+python onefilellm.py https://github.com/jimmc414/onefilellm ./local/docs/ 10.1234/journal.123 https://arxiv.org/abs/2401.14295
 ```
 
 ### Expected Inputs and Resulting Outputs
-The tool supports the following input options:
+The tool supports providing one or more of the following input types via the command line:
 
 - Local file path (e.g., C:\documents\report.pdf)
 - Local directory path (e.g., C:\projects\research) -> (files of selected filetypes segmented into one flat text file)
@@ -164,7 +165,7 @@ The tool supports the following input options, with their corresponding output a
 allowed_extensions = ['.xyz', '.pdq', '.example']
 ```
 
-**The output for all options is encapsulated in LLM prompt-appropriate XML and automatically copied to the clipboard.**
+**The output for all provided inputs is aggregated into a single XML file (`output_aggregate.xml`) and automatically copied to the clipboard.**
 
 1. **Local file path**
    - **Example Input:** `C:\documents\report.pdf`
@@ -207,10 +208,10 @@ allowed_extensions = ['.xyz', '.pdq', '.example']
     - **Output:** The full Sci-Hub paper PDF is converted into a text file.
 
 
-The script generates the following output files:
+The script generates the following primary output files when run with command-line arguments:
 
-- `uncompressed_output.txt`: The full text output, automatically copied to the clipboard.
-- `compressed_output.txt`: Cleaned and compressed text.
+- `output_aggregate.xml`: The full, aggregated XML output from all processed inputs. This is automatically copied to the clipboard.
+- `compressed_aggregate.txt`: Cleaned and compressed text derived from `output_aggregate.xml` (only generated if compression is enabled).
 - `processed_urls.txt`: A list of all processed URLs during web crawling.
 
 ## Configuration
@@ -260,6 +261,9 @@ This XML structure provides clear delineation of different content types and sou
 ## Recent Changes
 
 - **2025-01-20:**
+ - Implemented multi-input processing via command line arguments.
+ - Aggregated results into a single `output_aggregate.xml` file.
+ - Refactored core processing logic into `determine_and_process` function.
   - Added file and directory exclusion functionality to reduce context window usage
   - Added ability to exclude auto-generated files (*.pb.go, etc.)
   - Added ability to exclude mock files and test directories

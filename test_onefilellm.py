@@ -2,6 +2,9 @@ import unittest
 import os
 import tempfile
 import shutil
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
 # Assuming onefilellm.py is in the same directory or accessible via PYTHONPATH
 from onefilellm import (
     process_github_repo,
@@ -147,6 +150,139 @@ class TestDataAggregation(unittest.TestCase):
         # Check for the embedded repository content tag
         self.assertIn('<source type="github_repository"', issue_content)
         print("GitHub issue processing test passed.")
+
+
+# --- New Test Class for Main Functionality ---
+
+class TestMainFunctionality(unittest.TestCase):
+    def setUp(self):
+        # Create a temporary directory for output files
+        self.temp_dir = tempfile.mkdtemp()
+        self.output_file = os.path.join(self.temp_dir, "output_aggregate.xml")
+        self.compressed_file = os.path.join(self.temp_dir, "compressed_aggregate.txt")
+        self.urls_file = os.path.join(self.temp_dir, "processed_urls.txt")
+        # Store original CWD and change to temp dir for predictable output paths
+        self.original_cwd = os.getcwd()
+        os.chdir(self.temp_dir)
+        # Create a dummy local file for testing local file input
+        self.dummy_file_path = os.path.join(self.temp_dir, "dummy_test_file.txt")
+        with open(self.dummy_file_path, "w") as f:
+            f.write("This is a dummy test file.")
+        # Create a dummy local folder
+        self.dummy_folder_path = os.path.join(self.temp_dir, "dummy_test_folder")
+        os.makedirs(self.dummy_folder_path, exist_ok=True)
+        with open(os.path.join(self.dummy_folder_path, "file_in_folder.txt"), "w") as f:
+            f.write("Content inside folder.")
+
+
+    def tearDown(self):
+        # Change back to original CWD
+        os.chdir(self.original_cwd)
+        # Clean up the temporary directory and its contents
+        shutil.rmtree(self.temp_dir)
+
+    def run_script(self, args):
+        """Helper method to run the onefilellm.py script."""
+        # Construct the command
+        script_path = os.path.join(self.original_cwd, "onefilellm.py") # Assuming script is in original CWD
+        command = [sys.executable, script_path] + args
+        print(f"\nRunning command: {' '.join(command)}")
+        # Run the command from the temporary directory context
+        result = subprocess.run(command, capture_output=True, text=True, cwd=self.temp_dir)
+        print("stdout:", result.stdout)
+        print("stderr:", result.stderr)
+        return result
+
+    def test_main_single_local_file_input(self):
+        print("\nTesting main() with single local file input...")
+        result = self.run_script([self.dummy_file_path])
+        self.assertEqual(result.returncode, 0, f"Script failed with stderr: {result.stderr}")
+        self.assertTrue(os.path.exists(self.output_file))
+
+        # Verify XML structure
+        tree = ET.parse(self.output_file)
+        root = tree.getroot()
+        self.assertEqual(root.tag, "onefilellm_aggregate")
+        source_tags = root.findall('source[@type="local_file"]')
+        self.assertEqual(len(source_tags), 1)
+        file_tags = source_tags[0].findall('file')
+        self.assertEqual(len(file_tags), 1)
+        self.assertIn("dummy_test_file.txt", file_tags[0].get("path"))
+        self.assertIn("This is a dummy test file.", file_tags[0].text)
+        print("Single local file input test passed.")
+
+    def test_main_multiple_inputs_success(self):
+        print("\nTesting main() with multiple successful inputs (local file, local folder)...")
+        # Using local inputs to avoid network dependency in basic tests
+        result = self.run_script([self.dummy_file_path, self.dummy_folder_path])
+        self.assertEqual(result.returncode, 0, f"Script failed with stderr: {result.stderr}")
+        self.assertTrue(os.path.exists(self.output_file))
+
+        # Verify XML structure
+        tree = ET.parse(self.output_file)
+        root = tree.getroot()
+        self.assertEqual(root.tag, "onefilellm_aggregate")
+        # Check for one local_file source and one local_folder source
+        local_file_sources = root.findall('source[@type="local_file"]')
+        local_folder_sources = root.findall('source[@type="local_folder"]')
+        self.assertEqual(len(local_file_sources), 1)
+        self.assertEqual(len(local_folder_sources), 1)
+        # Check content within folder source
+        folder_file_tags = local_folder_sources[0].findall('file')
+        self.assertEqual(len(folder_file_tags), 1)
+        self.assertIn("file_in_folder.txt", folder_file_tags[0].get("path"))
+        self.assertIn("Content inside folder.", folder_file_tags[0].text)
+        print("Multiple successful inputs test passed.")
+
+    def test_main_input_error_handling(self):
+        print("\nTesting main() with mixed valid and invalid inputs...")
+        invalid_path = os.path.join(self.temp_dir, "non_existent_file.xyz")
+        result = self.run_script([self.dummy_file_path, invalid_path])
+        # Script should still exit successfully (return code 0) but contain an error tag
+        self.assertEqual(result.returncode, 0, f"Script failed with stderr: {result.stderr}")
+        self.assertTrue(os.path.exists(self.output_file))
+
+        # Verify XML structure
+        tree = ET.parse(self.output_file)
+        root = tree.getroot()
+        self.assertEqual(root.tag, "onefilellm_aggregate")
+        source_tags = root.findall('source[@type="local_file"]')
+        error_tags = root.findall('error')
+        self.assertEqual(len(source_tags), 1, "Should have one successful source tag")
+        self.assertEqual(len(error_tags), 1, "Should have one error tag")
+        self.assertEqual(error_tags[0].get("source"), invalid_path)
+        self.assertIn("Input path or URL type not recognized", error_tags[0].find('message').text)
+        print("Mixed valid/invalid input test passed.")
+
+    def test_main_no_arguments(self):
+        print("\nTesting main() with no arguments...")
+        result = self.run_script([])
+        # Should exit gracefully (code 0) and print help text
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("usage: onefilellm.py [-h] INPUT [INPUT ...]", result.stdout) # Check for usage string
+        self.assertIn("Processes multiple inputs", result.stdout) # Check for description
+        # Output file should NOT be created
+        self.assertFalse(os.path.exists(self.output_file))
+        print("No arguments test passed.")
+
+    # Optional: Add more tests using real network URLs, but mark them appropriately
+    # as they might be slow or fail due to network issues.
+    # Example:
+    # @unittest.skipIf("CI" in os.environ, "Skipping network tests in CI")
+    # def test_main_network_inputs(self):
+    #     print("\nTesting main() with network inputs (GitHub repo)...")
+    #     repo_url = "https://github.com/jimmc414/onefilellm" # A relatively small repo
+    #     result = self.run_script([repo_url])
+    #     self.assertEqual(result.returncode, 0, f"Script failed with stderr: {result.stderr}")
+    #     self.assertTrue(os.path.exists(self.output_file))
+    #     tree = ET.parse(self.output_file)
+    #     root = tree.getroot()
+    #     self.assertEqual(root.tag, "onefilellm_aggregate")
+    #     source_tags = root.findall('source[@type="github_repository"]')
+    #     self.assertEqual(len(source_tags), 1)
+    #     self.assertGreater(len(source_tags[0].findall('file')), 0) # Check for some files
+    #     print("Network input test passed.")
+
 
 if __name__ == "__main__":
     unittest.main()
