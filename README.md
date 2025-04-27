@@ -8,6 +8,8 @@ OneFileLLM is a command-line tool designed to streamline the creation of informa
 
 ![image](https://github.com/user-attachments/assets/68eb462f-4f10-4ae8-8fb8-98f742944dc0)
 
+![image](https://github.com/user-attachments/assets/0750d2d5-3496-46f8-a382-9ca653e49335)
+
 ![image](https://github.com/user-attachments/assets/c1b9f7d1-ae88-4156-931d-97b5cc184d3e)
 
 ![image](https://github.com/user-attachments/assets/400e9326-83e6-42ba-a47d-3dc7eafc9ba4)
