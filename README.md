@@ -5,6 +5,7 @@ OneFileLLM is a command-line tool designed to streamline the creation of informa
 
 - Automatic source type detection based on provided path, URL, or identifier
 - Support for processing **multiple inputs simultaneously** via the command line.
+
 ![image](https://github.com/user-attachments/assets/68eb462f-4f10-4ae8-8fb8-98f742944dc0)
 
 ![image](https://github.com/user-attachments/assets/c1b9f7d1-ae88-4156-931d-97b5cc184d3e)
