@@ -885,6 +885,98 @@ def is_allowed_filetype(filename):
     return any(filename.lower().endswith(ext) for ext in allowed_extensions)
 
 
+def combine_xml_outputs(outputs):
+    """
+    Combines multiple XML outputs into one cohesive XML document.
+    Each input should be a complete XML document with <source> tags.
+    """
+    if not outputs:
+        return None
+    
+    # If only one output, return it as is
+    if len(outputs) == 1:
+        return outputs[0]
+    
+    # Create a wrapper for multiple sources
+    combined = ['<combined_sources>']
+    
+    # Add each source
+    for output in outputs:
+        # Remove any XML declaration if present (rare but possible)
+        output = re.sub(r'<\?xml[^>]+\?>', '', output).strip()
+        combined.append(output)
+    
+    # Close the wrapper
+    combined.append('</combined_sources>')
+    
+    return '\n'.join(combined)
+
+def process_input(input_path, progress=None, task=None):
+    """
+    Process a single input path and return the XML output.
+    Extracted from main() for reuse with multiple inputs.
+    """
+    console = Console()
+    urls_list_file = "processed_urls.txt"
+    
+    try:
+        if task:
+            progress.update(task, description=f"[bright_blue]Processing {input_path}...")
+        
+        console.print(f"\n[bold bright_green]Processing:[/bold bright_green] [bold bright_yellow]{input_path}[/bold bright_yellow]\n")
+        
+        # Input type detection logic
+        if "github.com" in input_path:
+            if "/pull/" in input_path:
+                result = process_github_pull_request(input_path)
+            elif "/issues/" in input_path:
+                result = process_github_issue(input_path)
+            else: # Assume repository URL
+                result = process_github_repo(input_path)
+        elif urlparse(input_path).scheme in ["http", "https"]:
+            if "youtube.com" in input_path or "youtu.be" in input_path:
+                result = fetch_youtube_transcript(input_path)
+            elif "arxiv.org/abs/" in input_path:
+                result = process_arxiv_pdf(input_path)
+            elif input_path.lower().endswith(('.pdf')): # Direct PDF link
+                # Simplified: wrap direct PDF processing if needed, or treat as web crawl
+                print("[bold yellow]Direct PDF URL detected - treating as single-page crawl.[/bold yellow]")
+                crawl_result = crawl_and_extract_text(input_path, max_depth=0, include_pdfs=True, ignore_epubs=True)
+                result = crawl_result['content']
+                if crawl_result['processed_urls']:
+                    with open(urls_list_file, 'w', encoding='utf-8') as urls_file:
+                        urls_file.write('\n'.join(crawl_result['processed_urls']))
+            else: # Assume general web URL for crawling
+                crawl_result = crawl_and_extract_text(input_path, max_depth=1, include_pdfs=True, ignore_epubs=True) # Default max_depth=1
+                result = crawl_result['content']
+                if crawl_result['processed_urls']:
+                    with open(urls_list_file, 'w', encoding='utf-8') as urls_file:
+                        urls_file.write('\n'.join(crawl_result['processed_urls']))
+        # Basic check for DOI (starts with 10.) or PMID (all digits)
+        elif (input_path.startswith("10.") and "/" in input_path) or input_path.isdigit():
+            result = process_doi_or_pmid(input_path)
+        elif os.path.isdir(input_path): # Check if it's a local directory
+            result = process_local_folder(input_path)
+        elif os.path.isfile(input_path): # Handle single local file
+            print(f"Processing single local file: {input_path}")
+            relative_path = os.path.basename(input_path)
+            file_content = safe_file_read(input_path)
+            # Wrap single file in basic source/file XML
+            result = (f'<source type="local_file" path="{escape_xml(input_path)}">\n'
+                     f'<file path="{escape_xml(relative_path)}">\n'
+                     f'{file_content}\n'
+                     f'</file>\n'
+                     f'</source>')
+        else: # Input not recognized
+            raise ValueError(f"Input path or URL type not recognized: {input_path}")
+            
+        return result
+        
+    except Exception as e:
+        console.print(f"\n[bold red]Error processing {input_path}:[/bold red] {str(e)}")
+        # Return an error-wrapped source instead of raising
+        return f'<source type="error" path="{escape_xml(input_path)}">\n<e>Failed to process: {escape_xml(str(e))}</e>\n</source>'
+
 def main():
     console = Console()
 
@@ -905,6 +997,7 @@ def main():
         intro_text.append(f"\n{input_type}", style=color)
     intro_text.append("\n\nOutput is saved to file and copied to clipboard.", style="dim")
     intro_text.append("\nContent within XML tags remains unescaped for readability.", style="dim")
+    intro_text.append("\nMultiple inputs can be provided as command line arguments.", style="bright_green")
 
     intro_panel = Panel(
         intro_text,
@@ -916,19 +1009,20 @@ def main():
     )
     console.print(intro_panel)
 
+    # Determine input paths - either from command line args or user prompt
+    input_paths = []
     if len(sys.argv) > 1:
-        input_path = sys.argv[1]
+        input_paths = sys.argv[1:]
     else:
         input_path = Prompt.ask("\n[bold dodger_blue1]Enter the path or URL[/bold dodger_blue1]", console=console)
-
-    console.print(f"\n[bold bright_green]Processing:[/bold bright_green] [bold bright_yellow]{input_path}[/bold bright_yellow]\n")
+        input_paths = [input_path]
 
     # Define output filenames
     output_file = "output.xml" # Changed extension to reflect content
     processed_file = "compressed_output.txt" # Keep as txt for compressed
-    urls_list_file = "processed_urls.txt"
-
-    final_output = None # Initialize final_output
+    
+    # List to collect individual outputs
+    outputs = []
 
     with Progress(
         TextColumn("[bold bright_blue]{task.description}"),
@@ -941,51 +1035,20 @@ def main():
         task = progress.add_task("[bright_blue]Processing...", total=None) # Indeterminate task
 
         try:
-            # Input type detection logic
-            if "github.com" in input_path:
-                if "/pull/" in input_path:
-                    final_output = process_github_pull_request(input_path)
-                elif "/issues/" in input_path:
-                    final_output = process_github_issue(input_path)
-                else: # Assume repository URL
-                    final_output = process_github_repo(input_path)
-            elif urlparse(input_path).scheme in ["http", "https"]:
-                if "youtube.com" in input_path or "youtu.be" in input_path:
-                    final_output = fetch_youtube_transcript(input_path)
-                elif "arxiv.org/abs/" in input_path:
-                    final_output = process_arxiv_pdf(input_path)
-                elif input_path.lower().endswith(('.pdf')): # Direct PDF link
-                     # Simplified: wrap direct PDF processing if needed, or treat as web crawl
-                     print("[bold yellow]Direct PDF URL detected - treating as single-page crawl.[/bold yellow]")
-                     crawl_result = crawl_and_extract_text(input_path, max_depth=0, include_pdfs=True, ignore_epubs=True)
-                     final_output = crawl_result['content']
-                     if crawl_result['processed_urls']:
-                          with open(urls_list_file, 'w', encoding='utf-8') as urls_file:
-                             urls_file.write('\n'.join(crawl_result['processed_urls']))
-                else: # Assume general web URL for crawling
-                    crawl_result = crawl_and_extract_text(input_path, max_depth=1, include_pdfs=True, ignore_epubs=True) # Default max_depth=1
-                    final_output = crawl_result['content']
-                    if crawl_result['processed_urls']:
-                         with open(urls_list_file, 'w', encoding='utf-8') as urls_file:
-                            urls_file.write('\n'.join(crawl_result['processed_urls']))
-            # Basic check for DOI (starts with 10.) or PMID (all digits)
-            elif (input_path.startswith("10.") and "/" in input_path) or input_path.isdigit():
-                final_output = process_doi_or_pmid(input_path)
-            elif os.path.isdir(input_path): # Check if it's a local directory
-                final_output = process_local_folder(input_path)
-            elif os.path.isfile(input_path): # Handle single local file
-                 print(f"Processing single local file: {input_path}")
-                 relative_path = os.path.basename(input_path)
-                 file_content = safe_file_read(input_path)
-                 # Wrap single file in basic source/file XML
-                 final_output = (f'<source type="local_file" path="{escape_xml(input_path)}">\n'
-                                 f'<file path="{escape_xml(relative_path)}">\n'
-                                 f'{file_content}\n'
-                                 f'</file>\n'
-                                 f'</source>')
-            else: # Input not recognized
-                 raise ValueError(f"Input path or URL type not recognized: {input_path}")
-
+            # Process each input path
+            for input_path in input_paths:
+                result = process_input(input_path, progress, task)
+                if result:
+                    outputs.append(result)
+                    console.print(f"[green]Successfully processed: {input_path}[/green]")
+                else:
+                    console.print(f"[yellow]No output generated for: {input_path}[/yellow]")
+            
+            # Combine all outputs into one final output
+            if not outputs:
+                raise RuntimeError("No inputs were successfully processed.")
+                
+            final_output = combine_xml_outputs(outputs)
 
             # --- Output Generation ---
             if final_output is None:
@@ -1031,11 +1094,12 @@ def main():
             console.print(f"\n[bold red]An error occurred during processing:[/bold red]")
             console.print_exception(show_locals=False) # Print traceback
             # Optionally write the partial output if it exists
-            if final_output:
+            if outputs:
                  try:
                      error_filename = "error_output.xml"
+                     partial_output = combine_xml_outputs(outputs)
                      with open(error_filename, "w", encoding="utf-8") as err_file:
-                         err_file.write(final_output)
+                         err_file.write(partial_output)
                      console.print(f"[yellow]Partial output written to {error_filename}[/yellow]")
                  except Exception as write_err:
                      console.print(f"[red]Could not write partial output: {write_err}[/red]")
