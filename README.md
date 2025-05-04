@@ -138,11 +138,25 @@ python onefilellm.py
 ![image](https://github.com/jimmc414/1filellm/assets/6346529/b4e281eb-8a41-4612-9d73-b2c115691013)
 
 
-Or pass the URL or path in at the command line for the same behavior with less human interaction:
+You can pass a single URL or path as a command line argument for faster processing:
 
 ```bash
 python onefilellm.py https://github.com/jimmc414/1filellm
 ```
+
+### Multiple Inputs
+
+OneFileLLM now supports processing multiple inputs at once. Simply provide multiple paths or URLs as command line arguments:
+
+```bash
+python onefilellm.py https://github.com/jimmc414/1filellm test_file1.txt test_file2.txt
+```
+
+When multiple inputs are provided, OneFileLLM will:
+1. Process each input separately according to its type
+2. Combine all outputs into a single XML document
+3. Save the combined output to `output.xml`
+4. Copy the content to your clipboard for immediate use with LLMs
 
 ### Expected Inputs and Resulting Outputs
 The tool supports the following input options:
@@ -258,6 +272,12 @@ Where `[source_type]` could be one of: "github_repository", "github_pull_request
 This XML structure provides clear delineation of different content types and sources, potentially improving the LLM's understanding and processing of the input.
 
 ## Recent Changes
+
+- **2025-05-03:**
+  - Added support for processing multiple inputs as command line arguments
+  - Implemented functionality to combine multiple outputs into a cohesive XML document
+  - Refactored code to improve modularity and reusability
+  - Added test files to demonstrate multi-input capabilities
 
 - **2025-01-20:**
   - Added file and directory exclusion functionality to reduce context window usage
