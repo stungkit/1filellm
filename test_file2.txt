@@ -1,3 +1,0 @@
-This is test file 2.
-It also contains some test content.
-We'll use it to test multi-input processing.
