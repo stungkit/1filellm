@@ -1,3 +1,0 @@
-This is test file 1.
-It contains some test content.
-We'll use it to test the multi-input feature.
