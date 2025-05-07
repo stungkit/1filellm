@@ -13,6 +13,7 @@ from nbconvert import PythonExporter
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import TextFormatter
 import pyperclip
+from pathlib import Path
 import wget
 from rich import print
 from rich.console import Console
@@ -33,7 +34,17 @@ ENABLE_COMPRESSION_AND_NLTK = False # Set to True to enable NLTK download, stopw
 # and correct interpretation by LLMs. The escape_xml function currently returns text unchanged.
 # --- End Output Format Notes ---
 
+# --- Configuration Directories ---
 EXCLUDED_DIRS = ["dist", "node_modules", ".git", "__pycache__"]
+
+# --- Alias Configuration ---
+ALIAS_DIR_NAME = ".onefilellm_aliases"
+ALIAS_DIR = Path.home() / ALIAS_DIR_NAME
+# --- End Alias Configuration ---
+
+def ensure_alias_dir_exists():
+    """Ensures the alias directory exists, creating it if necessary."""
+    ALIAS_DIR.mkdir(parents=True, exist_ok=True)
 
 def safe_file_read(filepath, fallback_encoding='latin1'):
     try:
@@ -182,8 +193,10 @@ def process_local_folder(local_path):
                         print(f"Processing {item_path}...")
                         content_list.append(f'\n<file path="{escape_xml(relative_path)}">')
                         try:
-                            if item.endswith(".ipynb"):
+                            if item.lower().endswith(".ipynb"): # Case-insensitive check
                                 content_list.append(process_ipynb_file(item_path))
+                            elif item.lower().endswith(".pdf"): # Case-insensitive check
+                                content_list.append(_process_pdf_content_from_path(item_path))
                             else:
                                 content_list.append(safe_file_read(item_path))
                         except Exception as e:
@@ -203,6 +216,38 @@ def process_local_folder(local_path):
     print("Local folder processing finished.")
     return '\n'.join(content)
 
+
+def _process_pdf_content_from_path(file_path):
+    """
+    Extracts text content from a local PDF file.
+    Returns the extracted text or an error message string.
+    """
+    print(f"  Extracting text from local PDF: {file_path}")
+    text_list = []
+    try:
+        with open(file_path, 'rb') as pdf_file_obj:
+            pdf_reader = PdfReader(pdf_file_obj)
+            if not pdf_reader.pages:
+                print(f"  [bold yellow]Warning:[/bold yellow] PDF file has no pages or is encrypted: {file_path}")
+                return "<e>PDF file has no pages or could not be read (possibly encrypted).</e>"
+            
+            for i, page_obj in enumerate(pdf_reader.pages):
+                try:
+                    page_text = page_obj.extract_text()
+                    if page_text:
+                        text_list.append(page_text)
+                except Exception as page_e: # Catch error extracting from a specific page
+                     print(f"  [bold yellow]Warning:[/bold yellow] Could not extract text from page {i+1} of {file_path}: {page_e}")
+                     text_list.append(f"\n<e>Could not extract text from page {i+1}.</e>\n")
+        
+        if not text_list:
+             print(f"  [bold yellow]Warning:[/bold yellow] No text could be extracted from PDF: {file_path}")
+             return "<e>No text could be extracted from PDF.</e>"
+
+        return ' '.join(text_list)
+    except Exception as e:
+        print(f"[bold red]Error reading PDF file {file_path}: {e}[/bold red]")
+        return f"<e>Failed to read or process PDF file: {escape_xml(str(e))}</e>"
 
 def process_arxiv_pdf(arxiv_abs_url):
     """
@@ -323,6 +368,115 @@ def preprocess_text(input_file, output_file):
              out_file.write(input_text)
         print("[bold yellow]Warning:[/bold yellow] Preprocessing failed, writing original content to compressed file.")
 
+
+def is_potential_alias(arg_string):
+    """Checks if an argument string looks like a potential alias name."""
+    if not arg_string:
+        return False
+    # An alias should not contain typical path or URL characters
+    return not any(char in arg_string for char in ['.', '/', ':', '\\'])
+
+def handle_add_alias(args, console):
+    """Handles the --add-alias command."""
+    ensure_alias_dir_exists()
+    if len(args) < 2: # Need at least '--add-alias', 'alias_name', 'target'
+        console.print("[bold red]Error:[/bold red] --add-alias requires an alias name and at least one target URL/path.")
+        console.print("Usage: python onefilellm.py --add-alias <alias_name> <url_or_path1> [url_or_path2 ...]")
+        return True # Indicate handled and should exit
+
+    alias_name_index = args.index("--add-alias") + 1
+    if alias_name_index >= len(args):
+         console.print("[bold red]Error:[/bold red] Alias name not provided after --add-alias.")
+         return True
+
+    alias_name = args[alias_name_index]
+    
+    # Basic validation for alias name (no path-like chars)
+    if '/' in alias_name or '\\' in alias_name or '.' in alias_name or ':' in alias_name:
+        console.print(f"[bold red]Error:[/bold red] Invalid alias name '{alias_name}'. Avoid using '/', '\\', '.', or ':'.")
+        return True
+
+    targets = args[alias_name_index + 1:]
+
+    if not targets:
+        console.print("[bold red]Error:[/bold red] No target URLs/paths provided for the alias.")
+        return True
+
+    alias_file_path = ALIAS_DIR / alias_name
+    try:
+        with open(alias_file_path, "w", encoding="utf-8") as f:
+            for target in targets:
+                f.write(target + "\n")
+        console.print(f"[green]Alias '{alias_name}' created/updated successfully.[/green]")
+        for i, target in enumerate(targets):
+            console.print(f"  {i+1}. {target}")
+    except IOError as e:
+        console.print(f"[bold red]Error creating alias file {alias_file_path}: {e}[/bold red]")
+    return True # Indicate handled and should exit
+
+def handle_alias_from_clipboard(args, console):
+    """Handles the --alias-from-clipboard command."""
+    ensure_alias_dir_exists()
+    
+    if len(args) < 2: # Need at least '--alias-from-clipboard', 'alias_name'
+        console.print("[bold red]Error:[/bold red] --alias-from-clipboard requires an alias name.")
+        console.print("Usage: python onefilellm.py --alias-from-clipboard <alias_name>")
+        return True
+
+    alias_name_index = args.index("--alias-from-clipboard") + 1
+    if alias_name_index >= len(args):
+         console.print("[bold red]Error:[/bold red] Alias name not provided after --alias-from-clipboard.")
+         return True
+
+    alias_name = args[alias_name_index]
+
+    if '/' in alias_name or '\\' in alias_name or '.' in alias_name or ':' in alias_name:
+        console.print(f"[bold red]Error:[/bold red] Invalid alias name '{alias_name}'. Avoid using '/', '\\', '.', or ':'.")
+        return True
+
+    try:
+        clipboard_content = pyperclip.paste()
+        if not clipboard_content or not clipboard_content.strip():
+            console.print("[bold yellow]Warning:[/bold yellow] Clipboard is empty. Alias not created.")
+            return True
+        
+        # Treat each line in clipboard as a separate target
+        targets = [line.strip() for line in clipboard_content.splitlines() if line.strip()]
+
+        if not targets:
+            console.print("[bold yellow]Warning:[/bold yellow] Clipboard content did not yield any valid targets (after stripping whitespace). Alias not created.")
+            return True
+
+        alias_file_path = ALIAS_DIR / alias_name
+        with open(alias_file_path, "w", encoding="utf-8") as f:
+            for target in targets:
+                f.write(target + "\n")
+        console.print(f"[green]Alias '{alias_name}' created/updated successfully from clipboard content:[/green]")
+        for i, target in enumerate(targets):
+            console.print(f"  {i+1}. {target}")
+    except pyperclip.PyperclipException as e:
+        console.print(f"[bold red]Error accessing clipboard: {e}[/bold red]")
+        console.print("Please ensure you have a copy/paste mechanism installed (e.g., xclip or xsel on Linux).")
+    except IOError as e:
+        console.print(f"[bold red]Error creating alias file {alias_file_path}: {e}[/bold red]")
+    return True # Indicate handled and should exit
+
+def load_alias(alias_name, console):
+    """Loads target paths from an alias file."""
+    ensure_alias_dir_exists() # Ensure directory is checked, though mostly for creation
+    alias_file_path = ALIAS_DIR / alias_name
+    if alias_file_path.is_file():
+        try:
+            with open(alias_file_path, "r", encoding="utf-8") as f:
+                targets = [line.strip() for line in f if line.strip()]
+            if not targets:
+                console.print(f"[yellow]Warning: Alias '{alias_name}' file is empty.[/yellow]")
+                return []
+            return targets
+        except IOError as e:
+            console.print(f"[bold red]Error reading alias file {alias_file_path}: {e}[/bold red]")
+            return None # Indicate error
+    return None # Alias not found
 
 def get_token_count(text, disallowed_special=[], chunk_size=1000):
     """
@@ -869,7 +1023,7 @@ def is_allowed_filetype(filename):
         '.json', '.yaml', '.yml', '.xml', '.toml', '.ini', '.cfg', '.conf', '.properties',
         '.csv', '.tsv', '.proto', '.graphql', '.tf', '.tfvars', '.hcl',
         # Markup/Docs
-        '.md', '.txt', '.rst', '.tex', '.html', '.htm', '.css', '.scss', '.less',
+        '.md', '.txt', '.rst', '.tex', '.html', '.htm', '.css', '.scss', '.less', '.pdf',
         # Notebooks
         '.ipynb',
         # Other useful text
@@ -887,18 +1041,17 @@ def is_allowed_filetype(filename):
 
 def combine_xml_outputs(outputs):
     """
-    Combines multiple XML outputs into one cohesive XML document.
-    Each input should be a complete XML document with <source> tags.
+    Combines multiple XML outputs into one cohesive XML document
+    under a <onefilellm_output> root tag.
     """
     if not outputs:
         return None
     
-    # If only one output, return it as is
-    if len(outputs) == 1:
-        return outputs[0]
+    # If only one output, wrap it in onefilellm_output for consistency
+    # instead of returning it as-is
     
     # Create a wrapper for multiple sources
-    combined = ['<combined_sources>']
+    combined = ['<onefilellm_output>']
     
     # Add each source
     for output in outputs:
@@ -907,7 +1060,7 @@ def combine_xml_outputs(outputs):
         combined.append(output)
     
     # Close the wrapper
-    combined.append('</combined_sources>')
+    combined.append('</onefilellm_output>')
     
     return '\n'.join(combined)
 
@@ -958,15 +1111,25 @@ def process_input(input_path, progress=None, task=None):
         elif os.path.isdir(input_path): # Check if it's a local directory
             result = process_local_folder(input_path)
         elif os.path.isfile(input_path): # Handle single local file
-            print(f"Processing single local file: {input_path}")
-            relative_path = os.path.basename(input_path)
-            file_content = safe_file_read(input_path)
-            # Wrap single file in basic source/file XML
-            result = (f'<source type="local_file" path="{escape_xml(input_path)}">\n'
-                     f'<file path="{escape_xml(relative_path)}">\n'
-                     f'{file_content}\n'
-                     f'</file>\n'
-                     f'</source>')
+            if input_path.lower().endswith('.pdf'): # Case-insensitive check
+                console.print(f"Processing single local PDF file: {input_path}") # Use console for consistency
+                pdf_content_text = _process_pdf_content_from_path(input_path)
+                # Structure for a single local PDF file
+                result = (f'<source type="local_file" path="{escape_xml(input_path)}">\n'
+                         f'<file path="{escape_xml(os.path.basename(input_path))}">\n' # Wrapping content in <file>
+                         f'{pdf_content_text}\n' # Raw PDF text or error message
+                         f'</file>\n'
+                         f'</source>')
+            else:
+                # Existing logic for other single files
+                console.print(f"Processing single local file: {input_path}") # Use console
+                relative_path = os.path.basename(input_path)
+                file_content = safe_file_read(input_path)
+                result = (f'<source type="local_file" path="{escape_xml(input_path)}">\n'
+                         f'<file path="{escape_xml(relative_path)}">\n'
+                         f'{file_content}\n'
+                         f'</file>\n'
+                         f'</source>')
         else: # Input not recognized
             raise ValueError(f"Input path or URL type not recognized: {input_path}")
             
@@ -1009,13 +1172,47 @@ def main():
     )
     console.print(intro_panel)
 
-    # Determine input paths - either from command line args or user prompt
-    input_paths = []
-    if len(sys.argv) > 1:
-        input_paths = sys.argv[1:]
-    else:
-        input_path = Prompt.ask("\n[bold dodger_blue1]Enter the path or URL[/bold dodger_blue1]", console=console)
-        input_paths = [input_path]
+    # Get all arguments after script name
+    raw_args = sys.argv[1:]
+
+    # --- Handle Alias Management Commands ---
+    if "--add-alias" in raw_args:
+        if handle_add_alias(raw_args, console):
+            return # Exit after handling alias command
+    elif "--alias-from-clipboard" in raw_args:
+        if handle_alias_from_clipboard(raw_args, console):
+            return # Exit after handling alias command
+    # --- End Alias Management Commands ---
+
+    # --- Determine Input Paths (resolve aliases) ---
+    final_input_sources = []
+    if raw_args:
+        for arg in raw_args:
+            if is_potential_alias(arg):
+                console.print(f"[dim]Checking if '{arg}' is an alias...[/dim]")
+                resolved_targets = load_alias(arg, console)
+                if resolved_targets is not None: # Found and loaded (could be empty list)
+                    final_input_sources.extend(resolved_targets)
+                    if resolved_targets:
+                        console.print(f"[cyan]Alias '{arg}' expanded to: {', '.join(resolved_targets)}[/cyan]")
+                    else:
+                        console.print(f"[yellow]Alias '{arg}' is defined but empty. Skipping.[/yellow]")
+                else:
+                    # Not found as an alias, or error reading it, treat as a literal path/URL
+                    console.print(f"[dim]'{arg}' is not a known alias or could not be read. Treating as a direct input.[/dim]")
+                    final_input_sources.append(arg)
+            else:
+                final_input_sources.append(arg)
+    
+    if not final_input_sources: # No command line args, or all were empty aliases
+        # This ensures interactive prompt only if no actual inputs determined
+        # and it wasn't an alias management command that already exited.
+        user_input_path = Prompt.ask("\n[bold dodger_blue1]Enter the path or URL[/bold dodger_blue1]", console=console)
+        final_input_sources = [user_input_path]
+    
+    # For minimal changes later, assign to input_paths
+    input_paths = final_input_sources
+    # --- End Determine Input Paths ---
 
     # Define output filenames
     output_file = "output.xml" # Changed extension to reflect content

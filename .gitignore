@@ -92,3 +92,13 @@ pip-delete-this-directory.txt
 pip-log.txt
 pip-wheel-metadata/
 venv
+
+**/.claude/settings.local.json
+
+# Claude assistant files
+CLAUDE.md
+test_file.txt
+test_file.pdf
+clipboard_content.txt
+output.xml
+test_dir/

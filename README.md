@@ -12,6 +12,9 @@ OneFileLLM is a command-line tool designed to streamline the creation of informa
 - Automatic copying of uncompressed text to the clipboard for easy pasting into LLMs
 - Token count reporting for both compressed and uncompressed outputs
 - XML encapsulation of output for improved LLM performance
+- **NEW:** Alias system for frequently used sources
+- **NEW:** Proper PDF text extraction from local files
+- **NEW:** Cross-platform launcher scripts for easy execution
 
 ![image](https://github.com/jimmc414/1filellm/assets/6346529/73c24bcb-7be7-4b67-8591-3f1404b98fba)
 
@@ -146,7 +149,7 @@ python onefilellm.py https://github.com/jimmc414/1filellm
 
 ### Multiple Inputs
 
-OneFileLLM now supports processing multiple inputs at once. Simply provide multiple paths or URLs as command line arguments:
+OneFileLLM supports processing multiple inputs at once. Simply provide multiple paths or URLs as command line arguments:
 
 ```bash
 python onefilellm.py https://github.com/jimmc414/1filellm test_file1.txt test_file2.txt
@@ -154,9 +157,84 @@ python onefilellm.py https://github.com/jimmc414/1filellm test_file1.txt test_fi
 
 When multiple inputs are provided, OneFileLLM will:
 1. Process each input separately according to its type
-2. Combine all outputs into a single XML document
+2. Combine all outputs into a single XML document with the `<onefilellm_output>` root tag
 3. Save the combined output to `output.xml`
 4. Copy the content to your clipboard for immediate use with LLMs
+
+### Using Aliases
+
+OneFileLLM now includes an alias system to save you from typing the same URLs or paths repeatedly:
+
+#### Creating Aliases
+
+You can create aliases for single or multiple sources:
+
+```bash
+# Create an alias for a single source
+python onefilellm.py --add-alias github_repo https://github.com/jimmc414/onefilellm
+
+# Create an alias for multiple sources
+python onefilellm.py --add-alias mixed_sources test_file.txt https://github.com/jimmc414/onefilellm/blob/main/README.md
+```
+
+#### Creating Aliases from Clipboard
+
+You can also create aliases from content in your clipboard, with one source per line:
+
+```bash
+# First copy multiple URLs or paths to your clipboard (one per line)
+python onefilellm.py --alias-from-clipboard research_sources
+```
+
+#### Using Aliases
+
+Use your defined aliases just like any other input:
+
+```bash
+# Use a single alias
+python onefilellm.py github_repo
+
+# Mix aliases with direct sources
+python onefilellm.py github_repo test_file.txt
+
+# Use multiple aliases together
+python onefilellm.py github_repo research_sources
+```
+
+Aliases are stored in your home directory at `~/.onefilellm_aliases/` for easy access from any location.
+
+### Launcher Scripts
+
+OneFileLLM now includes convenient launcher scripts for different platforms:
+
+#### Windows
+
+Run `run_onefilellm.bat` directly from Windows Explorer or Command Prompt:
+
+```
+run_onefilellm.bat github_repo
+```
+
+You can create a shortcut to `run_onefilellm.bat` or add its directory to your system's PATH environment variable to run it from any command prompt.
+
+#### Linux/macOS
+
+Use the shell script launcher:
+
+```bash
+./run_onefilellm.sh github_repo
+```
+
+Make it globally accessible:
+
+```bash
+# Add to path (option 1)
+sudo ln -s /path/to/your/project/run_onefilellm.sh /usr/local/bin/onefilellm
+
+# Or make executable and move (option 2)
+chmod +x run_onefilellm.sh
+cp run_onefilellm.sh ~/bin/onefilellm
+```
 
 ### Expected Inputs and Resulting Outputs
 The tool supports the following input options:
@@ -257,21 +335,51 @@ In the `onefilellm.py` script, replace `GITHUB_TOKEN` with your actual token or 
 
 ## XML Output Format
 
-All output is now encapsulated in XML tags. This change was implemented based on evaluations showing that LLMs perform better with prompts structured in XML. The general structure of the output is as follows:
+All output is encapsulated in XML tags. This structure was implemented based on evaluations showing that LLMs perform better with prompts structured in XML. The general structure of the output is as follows:
+
+### Single Source Output
 
 ```xml
-<source type="[source_type]" [additional_attributes]>
-  <[content_type]>
-    [Extracted content]
-  </[content_type]>
-</source>
+<onefilellm_output>
+  <source type="[source_type]" [additional_attributes]>
+    <[content_type]>
+      [Extracted content]
+    </[content_type]>
+  </source>
+</onefilellm_output>
 ```
 
-Where `[source_type]` could be one of: "github_repository", "github_pull_request", "github_issue", "arxiv_paper", "youtube_transcript", "web_documentation", "sci_hub_paper", or "local_directory".
+### Multiple Sources Output
 
-This XML structure provides clear delineation of different content types and sources, potentially improving the LLM's understanding and processing of the input.
+```xml
+<onefilellm_output>
+  <source type="[source_type_1]" [additional_attributes]>
+    <[content_type]>
+      [Extracted content 1]
+    </[content_type]>
+  </source>
+  <source type="[source_type_2]" [additional_attributes]>
+    <[content_type]>
+      [Extracted content 2]
+    </[content_type]>
+  </source>
+  <!-- Additional sources as needed -->
+</onefilellm_output>
+```
+
+Where `[source_type]` could be one of: "github_repository", "github_pull_request", "github_issue", "arxiv_paper", "youtube_transcript", "web_documentation", "sci_hub_paper", "local_directory", or "local_file".
+
+This XML structure provides clear delineation of different content types and sources, improving the LLM's understanding and processing of the input.
 
 ## Recent Changes
+
+- **2025-05-07:**
+  - Added alias management system for frequently used sources
+  - Added `--add-alias` and `--alias-from-clipboard` commands
+  - Fixed PDF text extraction for local PDF files
+  - Changed root XML tag from `<combined_sources>` to `<onefilellm_output>`
+  - Added cross-platform launcher scripts for Windows and Linux/macOS
+  - Improved user feedback during alias operations
 
 - **2025-05-03:**
   - Added support for processing multiple inputs as command line arguments
