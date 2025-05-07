@@ -249,6 +249,40 @@ def _process_pdf_content_from_path(file_path):
         print(f"[bold red]Error reading PDF file {file_path}: {e}[/bold red]")
         return f"<e>Failed to read or process PDF file: {escape_xml(str(e))}</e>"
 
+def _download_and_read_file(url):
+    """
+    Downloads and reads the content of a file from a URL.
+    Returns the content as text or an error message string.
+    """
+    print(f"  Downloading and reading content from: {url}")
+    try:
+        # Add headers conditionally
+        response = requests.get(url, headers=headers if TOKEN != 'default_token_here' else None)
+        response.raise_for_status()
+        
+        # Try to determine encoding
+        encoding = response.encoding or 'utf-8'
+        
+        try:
+            # Try to decode as text
+            content = response.content.decode(encoding)
+            return content
+        except UnicodeDecodeError:
+            # If that fails, try a fallback encoding
+            try:
+                content = response.content.decode('latin-1')
+                return content
+            except Exception as decode_err:
+                print(f"  [bold yellow]Warning:[/bold yellow] Could not decode content: {decode_err}")
+                return f"<e>Failed to decode content: {escape_xml(str(decode_err))}</e>"
+                
+    except requests.RequestException as e:
+        print(f"[bold red]Error downloading file from {url}: {e}[/bold red]")
+        return f"<e>Failed to download file: {escape_xml(str(e))}</e>"
+    except Exception as e:
+        print(f"[bold red]Unexpected error processing file from {url}: {e}[/bold red]")
+        return f"<e>Unexpected error: {escape_xml(str(e))}</e>"
+
 def process_arxiv_pdf(arxiv_abs_url):
     """
     Downloads and extracts text from an ArXiv PDF, wrapped in XML.
@@ -1099,6 +1133,16 @@ def process_input(input_path, progress=None, task=None):
                 if crawl_result['processed_urls']:
                     with open(urls_list_file, 'w', encoding='utf-8') as urls_file:
                         urls_file.write('\n'.join(crawl_result['processed_urls']))
+            # Process URL directly if it ends with a recognized file extension
+            elif any(input_path.lower().endswith(ext) for ext in [ext for ext in ['.txt', '.md', '.rst', '.tex', '.html', '.htm', '.css', '.js', '.ts', '.py', '.java', '.c', '.cpp', '.h', '.hpp', '.cs', '.rb', '.php', '.swift', '.kt', '.scala', '.rs', '.lua', '.pl', '.sh', '.bash', '.zsh', '.ps1', '.sql', '.groovy', '.dart', '.json', '.yaml', '.yml', '.xml', '.toml', '.ini', '.cfg', '.conf', '.properties', '.csv', '.tsv', '.proto', '.graphql', '.tf', '.tfvars', '.hcl'] if is_allowed_filetype(f"test{ext}")] if ext != '.pdf'):
+                console.print(f"Processing direct file URL: {input_path}")
+                file_content = _download_and_read_file(input_path)
+                filename = os.path.basename(urlparse(input_path).path)
+                result = (f'<source type="web_file" url="{escape_xml(input_path)}">\n'
+                         f'<file path="{escape_xml(filename)}">\n'
+                         f'{file_content}\n'
+                         f'</file>\n'
+                         f'</source>')
             else: # Assume general web URL for crawling
                 crawl_result = crawl_and_extract_text(input_path, max_depth=1, include_pdfs=True, ignore_epubs=True) # Default max_depth=1
                 result = crawl_result['content']
