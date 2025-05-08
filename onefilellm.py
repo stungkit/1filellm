@@ -512,6 +512,48 @@ def load_alias(alias_name, console):
             return None # Indicate error
     return None # Alias not found
 
+def resolve_single_input_source(source_string, console):
+    """
+    Resolves a single input string. If it's an alias, expands it.
+    Otherwise, returns the string as a single-item list.
+    Returns a list of actual source strings, or an empty list if an alias is empty or fails to load.
+    """
+    resolved_sources = []
+    if is_potential_alias(source_string):
+        # The following lines are more aligned with existing logging in main() for CLI args
+        # so we adapt the logging slightly to match.
+        existing_log_message = f"[dim]Checking if '{source_string}' is an alias...[/dim]"
+        if console: # Check if console object is passed (it might not be in all call contexts)
+            console.print(existing_log_message)
+        else:
+            print(existing_log_message) # Fallback to standard print
+
+        resolved_targets = load_alias(source_string, console)
+        if resolved_targets is not None:  # Alias found and loaded (could be empty list)
+            resolved_sources.extend(resolved_targets)
+            if resolved_targets:
+                success_message = f"[cyan]Alias '{source_string}' expanded to: {', '.join(resolved_targets)}[/cyan]"
+                if console:
+                    console.print(success_message)
+                else:
+                    print(success_message)
+            else:
+                empty_alias_message = f"[yellow]Alias '{source_string}' is defined but empty. Skipping.[/yellow]"
+                if console:
+                    console.print(empty_alias_message)
+                else:
+                    print(empty_alias_message)
+        else:  # Not found as an alias or error reading it
+            not_found_message = f"[dim]'{source_string}' is not a known alias or could not be read. Treating as a direct input.[/dim]"
+            if console:
+                console.print(not_found_message)
+            else:
+                print(not_found_message)
+            resolved_sources.append(source_string)
+    else:
+        resolved_sources.append(source_string)
+    return resolved_sources
+
 def get_token_count(text, disallowed_special=[], chunk_size=1000):
     """
     Counts tokens using tiktoken, stripping XML tags first.
@@ -1231,28 +1273,15 @@ def main():
     # --- Determine Input Paths (resolve aliases) ---
     final_input_sources = []
     if raw_args:
-        for arg in raw_args:
-            if is_potential_alias(arg):
-                console.print(f"[dim]Checking if '{arg}' is an alias...[/dim]")
-                resolved_targets = load_alias(arg, console)
-                if resolved_targets is not None: # Found and loaded (could be empty list)
-                    final_input_sources.extend(resolved_targets)
-                    if resolved_targets:
-                        console.print(f"[cyan]Alias '{arg}' expanded to: {', '.join(resolved_targets)}[/cyan]")
-                    else:
-                        console.print(f"[yellow]Alias '{arg}' is defined but empty. Skipping.[/yellow]")
-                else:
-                    # Not found as an alias, or error reading it, treat as a literal path/URL
-                    console.print(f"[dim]'{arg}' is not a known alias or could not be read. Treating as a direct input.[/dim]")
-                    final_input_sources.append(arg)
-            else:
-                final_input_sources.append(arg)
+        for arg_string in raw_args:
+            final_input_sources.extend(resolve_single_input_source(arg_string, console))
     
-    if not final_input_sources: # No command line args, or all were empty aliases
+    if not final_input_sources: # No command line args, or all were empty aliases or resolved to empty
         # This ensures interactive prompt only if no actual inputs determined
         # and it wasn't an alias management command that already exited.
-        user_input_path = Prompt.ask("\n[bold dodger_blue1]Enter the path or URL[/bold dodger_blue1]", console=console)
-        final_input_sources = [user_input_path]
+        user_input_string = Prompt.ask("\n[bold dodger_blue1]Enter the path or URL[/bold dodger_blue1]", console=console).strip()
+        if user_input_string: # Process only if user provided some input
+            final_input_sources.extend(resolve_single_input_source(user_input_string, console))
     
     # For minimal changes later, assign to input_paths
     input_paths = final_input_sources
