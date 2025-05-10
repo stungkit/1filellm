@@ -22,6 +22,8 @@ from rich.text import Text
 from rich.prompt import Prompt
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 import xml.etree.ElementTree as ET # Keep for preprocess_text if needed
+import pandas as pd
+from typing import Union, List, Dict
 
 # --- Configuration Flags ---
 ENABLE_COMPRESSION_AND_NLTK = False # Set to True to enable NLTK download, stopword removal, and compressed output
@@ -197,6 +199,24 @@ def process_local_folder(local_path):
                                 content_list.append(process_ipynb_file(item_path))
                             elif item.lower().endswith(".pdf"): # Case-insensitive check
                                 content_list.append(_process_pdf_content_from_path(item_path))
+                            elif item.lower().endswith(('.xls', '.xlsx')): # Case-insensitive check for Excel files
+                                # Need to pop the opening file tag we already added
+                                content_list.pop()  # Remove the <file> tag
+                                
+                                # Generate Markdown for each sheet
+                                try:
+                                    for sheet, md in excel_to_markdown(item_path).items():
+                                        virtual_name = f"{os.path.splitext(relative_path)[0]}_{sheet}.md"
+                                        content_list.append(f'\n<file path="{escape_xml(virtual_name)}">')
+                                        content_list.append(md)      # raw Markdown table
+                                        content_list.append('</file>')
+                                except Exception as e:
+                                    print(f"[bold red]Error processing Excel file {item_path}: {e}[/bold red]")
+                                    # Re-add the original file tag for the error message
+                                    content_list.append(f'\n<file path="{escape_xml(relative_path)}">')
+                                    content_list.append(f'<e>Failed to process Excel file: {escape_xml(str(e))}</e>')
+                                    content_list.append('</file>')
+                                continue  # Skip the final </file> for Excel files
                             else:
                                 content_list.append(safe_file_read(item_path))
                         except Exception as e:
@@ -282,6 +302,228 @@ def _download_and_read_file(url):
     except Exception as e:
         print(f"[bold red]Unexpected error processing file from {url}: {e}[/bold red]")
         return f"<e>Unexpected error: {escape_xml(str(e))}</e>"
+
+
+def excel_to_markdown(
+    file_path: Union[str, Path],
+    *,
+    skip_rows: int = 0,  # Changed from 3 to 0 to not skip potential headers
+    min_header_cells: int = 2,
+    sheet_filter: List[str] | None = None,
+) -> Dict[str, str]:
+    """
+    Convert an Excel workbook (.xls / .xlsx) to Markdown.
+
+    Parameters
+    ----------
+    file_path :
+        Path to the workbook.
+    skip_rows :
+        How many leading rows to ignore before we start hunting for a header row.
+        Default is 0 to ensure we don't miss any potential headers.
+    min_header_cells :
+        Minimum number of non-NA cells that makes a row "look like" a header.
+    sheet_filter :
+        Optional list of sheet names to include (exact match, case-sensitive).
+
+    Returns
+    -------
+    Dict[str, str]
+        Mapping of ``sheet_name → markdown_table``.
+        Empty dict means the workbook had no usable sheets by the above rules.
+
+    Raises
+    ------
+    ValueError
+        If the file extension is not .xls or .xlsx.
+    RuntimeError
+        If *none* of the sheets meet the header-detection criteria.
+    """
+    file_path = Path(file_path).expanduser().resolve()
+    if file_path.suffix.lower() not in {".xls", ".xlsx"}:
+        raise ValueError("Only .xls/.xlsx files are supported")
+
+    print(f"Processing Excel file: {file_path}")
+    
+    # For simple Excel files, it's often better to use header=0 directly
+    # Try both approaches: first with automatic header detection, then fallback to header=0
+    try:
+        # Let pandas pick the right engine (openpyxl for xlsx, xlrd/pyxlsb if installed for xls)
+        wb = pd.read_excel(file_path, sheet_name=None, header=None)
+
+        md_tables: Dict[str, str] = {}
+
+        for name, df in wb.items():
+            if sheet_filter and name not in sheet_filter:
+                continue
+
+            df = df.iloc[skip_rows:].reset_index(drop=True)
+            try:
+                # Try to find a header row
+                header_idx = next(i for i, row in df.iterrows() if row.count() >= min_header_cells)
+                
+                # Use ffill instead of deprecated method parameter
+                header = df.loc[header_idx].copy()
+                header = header.ffill()  # Forward-fill NaN values
+                
+                body = df.loc[header_idx + 1:].copy()
+                body.columns = header
+                body.dropna(how="all", inplace=True)
+                
+                # Convert to markdown
+                md_tables[name] = body.to_markdown(index=False)
+                print(f"  Processed sheet '{name}' with detected header")
+                
+            except StopIteration:
+                # No row looked like a header - skip for now, we'll try again with header=0
+                print(f"  No header detected in sheet '{name}', will try fallback")
+                continue
+
+        # If no headers were found with our heuristic, try again with header=0
+        if not md_tables:
+            print("  No headers detected with heuristic, trying with fixed header row")
+            wb = pd.read_excel(file_path, sheet_name=None, header=0)
+            
+            for name, df in wb.items():
+                if sheet_filter and name not in sheet_filter:
+                    continue
+                    
+                # Drop rows that are all NaN
+                df = df.dropna(how="all")
+                
+                # Convert to markdown
+                md_tables[name] = df.to_markdown(index=False)
+                print(f"  Processed sheet '{name}' with fixed header")
+
+        if not md_tables:
+            raise RuntimeError("Workbook contained no sheets with usable data")
+
+        return md_tables
+        
+    except Exception as e:
+        print(f"Error processing Excel file: {e}")
+        # Last resort: try with the most basic approach
+        wb = pd.read_excel(file_path, sheet_name=None)
+        md_tables = {name: df.to_markdown(index=False) for name, df in wb.items() 
+                    if not (sheet_filter and name not in sheet_filter)}
+                    
+        if not md_tables:
+            raise RuntimeError(f"Failed to extract any usable data from Excel file: {e}")
+            
+        return md_tables
+
+
+def excel_to_markdown_from_url(
+    url: str,
+    *,
+    skip_rows: int = 0,  # Changed from 3 to 0 to not skip potential headers
+    min_header_cells: int = 2,
+    sheet_filter: List[str] | None = None,
+) -> Dict[str, str]:
+    """
+    Download an Excel workbook from a URL and convert it to Markdown.
+    
+    This function downloads the Excel file from the URL to a BytesIO buffer
+    and then processes it using excel_to_markdown.
+    
+    Parameters are the same as excel_to_markdown.
+    
+    Returns
+    -------
+    Dict[str, str]
+        Mapping of ``sheet_name → markdown_table``.
+    
+    Raises
+    ------
+    ValueError, RuntimeError, RequestException
+        Various errors that might occur during downloading or processing.
+    """
+    import io
+    print(f"  Downloading Excel file from URL: {url}")
+    
+    try:
+        # Add headers conditionally
+        response = requests.get(url, headers=headers if TOKEN != 'default_token_here' else None)
+        response.raise_for_status()
+        
+        # Create a BytesIO buffer from the downloaded content
+        excel_buffer = io.BytesIO(response.content)
+        
+        # For simple Excel files, it's often better to use header=0 directly
+        # Try both approaches: first with automatic header detection, then fallback to header=0
+        try:
+            # Let pandas read from the buffer
+            wb = pd.read_excel(excel_buffer, sheet_name=None, header=None)
+            
+            md_tables: Dict[str, str] = {}
+            
+            for name, df in wb.items():
+                if sheet_filter and name not in sheet_filter:
+                    continue
+                    
+                df = df.iloc[skip_rows:].reset_index(drop=True)
+                try:
+                    # Try to find a header row
+                    header_idx = next(i for i, row in df.iterrows() if row.count() >= min_header_cells)
+                    
+                    # Use ffill instead of deprecated method parameter
+                    header = df.loc[header_idx].copy()
+                    header = header.ffill()  # Forward-fill NaN values
+                    
+                    body = df.loc[header_idx + 1:].copy()
+                    body.columns = header
+                    body.dropna(how="all", inplace=True)
+                    
+                    # Convert to markdown
+                    md_tables[name] = body.to_markdown(index=False)
+                    print(f"  Processed sheet '{name}' with detected header")
+                    
+                except StopIteration:
+                    # No row looked like a header - skip for now, we'll try again with header=0
+                    print(f"  No header detected in sheet '{name}', will try fallback")
+                    continue
+
+            # If no headers were found with our heuristic, try again with header=0
+            if not md_tables:
+                print("  No headers detected with heuristic, trying with fixed header row")
+                excel_buffer.seek(0)  # Reset the buffer position
+                wb = pd.read_excel(excel_buffer, sheet_name=None, header=0)
+                
+                for name, df in wb.items():
+                    if sheet_filter and name not in sheet_filter:
+                        continue
+                        
+                    # Drop rows that are all NaN
+                    df = df.dropna(how="all")
+                    
+                    # Convert to markdown
+                    md_tables[name] = df.to_markdown(index=False)
+                    print(f"  Processed sheet '{name}' with fixed header")
+
+            if not md_tables:
+                raise RuntimeError("Workbook contained no sheets with usable data")
+
+            return md_tables
+            
+        except Exception as e:
+            print(f"Error processing Excel file: {e}")
+            # Last resort: try with the most basic approach
+            excel_buffer.seek(0)  # Reset the buffer position
+            wb = pd.read_excel(excel_buffer, sheet_name=None)
+            md_tables = {name: df.to_markdown(index=False) for name, df in wb.items() 
+                        if not (sheet_filter and name not in sheet_filter)}
+                        
+            if not md_tables:
+                raise RuntimeError(f"Failed to extract any usable data from Excel file: {e}")
+                
+            return md_tables
+        
+    except requests.RequestException as e:
+        print(f"[bold red]Error downloading Excel file from {url}: {e}[/bold red]")
+        raise
+    except Exception as e:
+        print(f"[bold red]Error processing Excel file from {url}: {e}[/bold red]")
+        raise
 
 def process_arxiv_pdf(arxiv_abs_url):
     """
@@ -1102,6 +1344,8 @@ def is_allowed_filetype(filename):
         '.md', '.txt', '.rst', '.tex', '.html', '.htm', '.css', '.scss', '.less', '.pdf',
         # Notebooks
         '.ipynb',
+        # Spreadsheets
+        '.xls', '.xlsx',
         # Other useful text
         '.dockerfile', 'Dockerfile', '.gitignore', '.gitattributes', 'Makefile', '.env',
         '.cjs', '.localhost', '.example', # From original list
@@ -1175,6 +1419,30 @@ def process_input(input_path, progress=None, task=None):
                 if crawl_result['processed_urls']:
                     with open(urls_list_file, 'w', encoding='utf-8') as urls_file:
                         urls_file.write('\n'.join(crawl_result['processed_urls']))
+            elif input_path.lower().endswith(('.xls', '.xlsx')): # Direct Excel file link
+                console.print(f"Processing Excel file from URL: {input_path}")
+                try:
+                    filename = os.path.basename(urlparse(input_path).path)
+                    base_filename = os.path.splitext(filename)[0]
+                    
+                    # Get markdown tables for each sheet
+                    result_parts = [f'<source type="web_excel" url="{escape_xml(input_path)}">']
+                    
+                    try:
+                        markdown_tables = excel_to_markdown_from_url(input_path)
+                        for sheet_name, markdown in markdown_tables.items():
+                            virtual_name = f"{base_filename}_{sheet_name}.md"
+                            result_parts.append(f'<file path="{escape_xml(virtual_name)}">')
+                            result_parts.append(markdown)
+                            result_parts.append('</file>')
+                    except Exception as e:
+                        result_parts.append(f'<e>Failed to process Excel file from URL: {escape_xml(str(e))}</e>')
+                    
+                    result_parts.append('</source>')
+                    result = '\n'.join(result_parts)
+                except Exception as e:
+                    console.print(f"[bold red]Error processing Excel URL {input_path}: {e}[/bold red]")
+                    result = f'<source type="web_excel" url="{escape_xml(input_path)}"><e>Failed to process Excel file: {escape_xml(str(e))}</e></source>'
             # Process URL directly if it ends with a recognized file extension
             elif any(input_path.lower().endswith(ext) for ext in [ext for ext in ['.txt', '.md', '.rst', '.tex', '.html', '.htm', '.css', '.js', '.ts', '.py', '.java', '.c', '.cpp', '.h', '.hpp', '.cs', '.rb', '.php', '.swift', '.kt', '.scala', '.rs', '.lua', '.pl', '.sh', '.bash', '.zsh', '.ps1', '.sql', '.groovy', '.dart', '.json', '.yaml', '.yml', '.xml', '.toml', '.ini', '.cfg', '.conf', '.properties', '.csv', '.tsv', '.proto', '.graphql', '.tf', '.tfvars', '.hcl'] if is_allowed_filetype(f"test{ext}")] if ext != '.pdf'):
                 console.print(f"Processing direct file URL: {input_path}")
@@ -1206,6 +1474,30 @@ def process_input(input_path, progress=None, task=None):
                          f'{pdf_content_text}\n' # Raw PDF text or error message
                          f'</file>\n'
                          f'</source>')
+            elif input_path.lower().endswith(('.xls', '.xlsx')): # Case-insensitive check for Excel files
+                console.print(f"Processing single local Excel file: {input_path}")
+                try:
+                    filename = os.path.basename(input_path)
+                    base_filename = os.path.splitext(filename)[0]
+                    
+                    # Get markdown tables for each sheet
+                    result_parts = [f'<source type="local_file" path="{escape_xml(input_path)}">']
+                    
+                    try:
+                        markdown_tables = excel_to_markdown(input_path)
+                        for sheet_name, markdown in markdown_tables.items():
+                            virtual_name = f"{base_filename}_{sheet_name}.md"
+                            result_parts.append(f'<file path="{escape_xml(virtual_name)}">')
+                            result_parts.append(markdown)
+                            result_parts.append('</file>')
+                    except Exception as e:
+                        result_parts.append(f'<e>Failed to process Excel file: {escape_xml(str(e))}</e>')
+                    
+                    result_parts.append('</source>')
+                    result = '\n'.join(result_parts)
+                except Exception as e:
+                    console.print(f"[bold red]Error processing Excel file {input_path}: {e}[/bold red]")
+                    result = f'<source type="local_file" path="{escape_xml(input_path)}"><e>Failed to process Excel file: {escape_xml(str(e))}</e></source>'
             else:
                 # Existing logic for other single files
                 console.print(f"Processing single local file: {input_path}") # Use console

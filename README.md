@@ -5,13 +5,14 @@ OneFileLLM is a command-line tool designed to streamline the creation of informa
 
 - Automatic source type detection based on provided path, URL, or identifier
 - Support for local files and/or directories, GitHub repositories, GitHub pull requests, GitHub issues, academic papers from ArXiv, YouTube transcripts, web page documentation, Sci-Hub hosted papers via DOI or PMID
-- Handling of multiple file formats, including Jupyter Notebooks (.ipynb), and PDFs
+- Handling of multiple file formats, including Jupyter Notebooks (.ipynb), PDFs, and Excel files (.xls/.xlsx)
 - Web crawling functionality to extract content from linked pages up to a specified depth
 - Integration with Sci-Hub for automatic downloading of research papers using DOIs or PMIDs
 - Text preprocessing, including compressed and uncompressed outputs, stopword removal, and lowercase conversion
 - Automatic copying of uncompressed text to the clipboard for easy pasting into LLMs
 - Token count reporting for both compressed and uncompressed outputs
 - XML encapsulation of output for improved LLM performance
+- **NEW:** Excel spreadsheet (.xls/.xlsx) processing to Markdown tables
 - **NEW:** Alias system for frequently used sources
 - **NEW:** Proper PDF text extraction from local files
 - **NEW:** Cross-platform launcher scripts for easy execution
@@ -372,6 +373,12 @@ Where `[source_type]` could be one of: "github_repository", "github_pull_request
 This XML structure provides clear delineation of different content types and sources, improving the LLM's understanding and processing of the input.
 
 ## Recent Changes
+
+- **2025-05-10:**
+  - Added Excel spreadsheet (.xls/.xlsx) processing with conversion to Markdown tables
+  - Support for both local Excel files and Excel files via URL
+  - Each sheet in an Excel workbook is converted to a separate Markdown table
+  - Added intelligent header detection for tables with varying formats
 
 - **2025-05-07:**
   - Added alias management system for frequently used sources
