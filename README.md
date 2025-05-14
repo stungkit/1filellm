@@ -12,10 +12,13 @@ OneFileLLM is a command-line tool designed to streamline the creation of informa
 - Automatic copying of uncompressed text to the clipboard for easy pasting into LLMs
 - Token count reporting for both compressed and uncompressed outputs
 - XML encapsulation of output for improved LLM performance
-- **NEW:** Excel spreadsheet (.xls/.xlsx) processing to Markdown tables
-- **NEW:** Alias system for frequently used sources
-- **NEW:** Proper PDF text extraction from local files
-- **NEW:** Cross-platform launcher scripts for easy execution
+- **NEW:** Text stream input processing directly from stdin or clipboard
+- **NEW:** Format detection and processing for plain text, Markdown, JSON, HTML, and YAML
+- **NEW:** Format override option to control input processing
+- Excel spreadsheet (.xls/.xlsx) processing to Markdown tables
+- Alias system for frequently used sources
+- Proper PDF text extraction from local files
+- Cross-platform launcher scripts for easy execution
 
 ![image](https://github.com/jimmc414/1filellm/assets/6346529/73c24bcb-7be7-4b67-8591-3f1404b98fba)
 
@@ -36,20 +39,20 @@ OneFileLLM is a command-line tool designed to streamline the creation of informa
  |        User          |          |  Command Line Tool  |         |  External Libraries  |
  |----------------------|          |---------------------|         |----------------------|
  | - Provides input URL |--------->| - Handles user input|         | - Requests           |
- |                      |          | - Detects source    |<--------| - BeautifulSoup      |
- | - Receives text      |          |   type              |         | - PyPDF2             |
- |   in clipboard       |<---------| - Calls appropriate |         | - Tiktoken           |
- |                      |          |   processing modules|         | - NLTK               |
- +----------------------+          | - Preprocesses text |         | - Nbformat           |
-                                   | - Generates output  |         | - Nbconvert          |
+ | - Provides text via  |          | - Detects source    |<--------| - BeautifulSoup      |
+ |   pipe or clipboard  |          |   type              |         | - PyPDF2             |
+ | - Receives text      |          | - Calls appropriate |         | - Tiktoken           |
+ |   in clipboard       |<---------| - processing modules|         | - NLTK               |
+ |                      |          | - Preprocesses text |         | - Nbformat           |
+ +----------------------+          | - Generates output  |         | - Nbconvert          |
                                    |   files             |         | - YouTube Transcript |
                                    | - Copies text to    |         |   API                |
                                    |   clipboard         |         | - Pyperclip          |
                                    | - Reports token     |         | - Wget               |
                                    |   count             |         | - Tqdm               |
                                    +---------------------+         | - Rich               |
+                                           |                       | - PyYAML             |
                                            |                       +----------------------+
-                                           |
                                            v
                                     +---------------------+
                                     | Source Type         |
@@ -71,6 +74,7 @@ OneFileLLM is a command-line tool designed to streamline the creation of informa
                                     | - Sci-Hub Paper Proc|
                                     | - Webpage Crawling  |
                                     |   Proc              |
+                                    | - Text Stream Proc  |
                                     +---------------------+
                                            |
                                            v
@@ -147,6 +151,48 @@ You can pass a single URL or path as a command line argument for faster processi
 ```bash
 python onefilellm.py https://github.com/jimmc414/1filellm
 ```
+
+### Text Stream Processing
+
+OneFileLLM now supports processing text directly from standard input (stdin) or the system clipboard:
+
+#### Processing from Standard Input
+
+Use the `-` argument to process text from standard input:
+
+```bash
+# Process text from a file via pipe
+cat README.md | python onefilellm.py -
+
+# Process output from another command
+git diff | python onefilellm.py -
+```
+
+#### Processing from Clipboard
+
+Use the `--clipboard` or `-c` argument to process text from the system clipboard:
+
+```bash
+# Copy text to clipboard first, then run:
+python onefilellm.py --clipboard
+
+# Or using the short form:
+python onefilellm.py -c
+```
+
+#### Format Detection and Override
+
+OneFileLLM automatically detects the format of input text (plain text, Markdown, JSON, HTML, YAML) and processes it accordingly. You can override this detection with the `--format` or `-f` option:
+
+```bash
+# Force processing as JSON
+cat data.txt | python onefilellm.py - --format json
+
+# Force processing clipboard content as Markdown 
+python onefilellm.py --clipboard -f markdown
+```
+
+Supported format types: `text`, `markdown`, `json`, `html`, `yaml`, `doculing`, `markitdown`
 
 ### Multiple Inputs
 
@@ -250,7 +296,9 @@ The tool supports the following input options:
 - Webpage URL (e.g., https://llm.datasette.io/en/stable/) -> (To scrape pages to x depth in segmented text file)
 - Sci-Hub Paper DOI (Digital Object Identifier of Sci-Hub hosted paper) (e.g., 10.1053/j.ajkd.2017.08.002) -> (Full Sci-Hub paper PDF to text file)
 - Sci-Hub Paper PMID (PubMed Identifier of Sci-Hub hosted paper) (e.g., 29203127) -> (Full Sci-Hub paper PDF to text file)
-- 
+- Standard input via pipe (e.g., `cat file.txt | python onefilellm.py -`)
+- Clipboard content (e.g., `python onefilellm.py --clipboard`)
+
 The tool supports the following input options, with their corresponding output actions. Note that the input file extensions are selected based on the following section of code (Applicable to Repos only):
 
 ```python
@@ -299,11 +347,18 @@ allowed_extensions = ['.xyz', '.pdq', '.example']
     - **Example Input:** `29203127`
     - **Output:** The full Sci-Hub paper PDF is converted into a text file.
 
+11. **Standard Input**
+    - **Example Input:** `cat file.txt | python onefilellm.py -`
+    - **Output:** The piped text content is processed according to its detected format (or format override).
+
+12. **Clipboard**
+    - **Example Input:** `python onefilellm.py --clipboard`
+    - **Output:** The clipboard text content is processed according to its detected format (or format override).
 
 The script generates the following output files:
 
-- `uncompressed_output.txt`: The full text output, automatically copied to the clipboard.
-- `compressed_output.txt`: Cleaned and compressed text.
+- `output.xml`: The full XML-structured output, automatically copied to the clipboard.
+- `compressed_output.txt`: Cleaned and compressed text (when NLTK processing is enabled).
 - `processed_urls.txt`: A list of all processed URLs during web crawling.
 
 ## Configuration
@@ -368,11 +423,18 @@ All output is encapsulated in XML tags. This structure was implemented based on 
 </onefilellm_output>
 ```
 
-Where `[source_type]` could be one of: "github_repository", "github_pull_request", "github_issue", "arxiv_paper", "youtube_transcript", "web_documentation", "sci_hub_paper", "local_directory", or "local_file".
+Where `[source_type]` could be one of: "github_repository", "github_pull_request", "github_issue", "arxiv_paper", "youtube_transcript", "web_documentation", "sci_hub_paper", "local_directory", "local_file", "stdin", or "clipboard".
 
 This XML structure provides clear delineation of different content types and sources, improving the LLM's understanding and processing of the input.
 
 ## Recent Changes
+
+- **2025-05-14:**
+  - Added text stream input processing directly from stdin or clipboard
+  - Implemented format detection for plain text, Markdown, JSON, HTML, and YAML
+  - Added format override option with `--format TYPE` or `-f TYPE` flags
+  - Updated help messages and error handling for stream processing
+  - Added comprehensive test suite for stream processing features
 
 - **2025-05-10:**
   - Added Excel spreadsheet (.xls/.xlsx) processing with conversion to Markdown tables
@@ -429,6 +491,4 @@ This XML structure provides clear delineation of different content types and sou
 - For excluding directories, modify the EXCLUDED_DIRS list to customize which directories are skipped
 - For Web scraping, Modify this line of code to change how many links deep from the starting URL to include ``` max_depth = 2 ```
 - Token counts are displayed in the console for both output files.
-
-
 

@@ -4,6 +4,7 @@ from urllib.parse import urljoin, urlparse
 from PyPDF2 import PdfReader
 import os
 import sys
+import json
 import tiktoken
 import nltk
 from nltk.corpus import stopwords
@@ -24,6 +25,13 @@ from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 import xml.etree.ElementTree as ET # Keep for preprocess_text if needed
 import pandas as pd
 from typing import Union, List, Dict
+
+# Try to import yaml, but don't fail if not available
+try:
+    import yaml
+except ImportError:
+    yaml = None
+    print("[Warning] PyYAML module not found. YAML format detection/parsing will be limited.", file=sys.stderr)
 
 # --- Configuration Flags ---
 ENABLE_COMPRESSION_AND_NLTK = False # Set to True to enable NLTK download, stopword removal, and compressed output
@@ -55,6 +63,243 @@ def safe_file_read(filepath, fallback_encoding='latin1'):
     except UnicodeDecodeError:
         with open(filepath, "r", encoding=fallback_encoding) as file:
             return file.read()
+
+def read_from_clipboard() -> str | None:
+    """
+    Retrieves text content from the system clipboard.
+
+    Returns:
+        str | None: The text content from the clipboard, or None if empty or error.
+    """
+    try:
+        clipboard_content = pyperclip.paste()
+        if clipboard_content and clipboard_content.strip():
+            return clipboard_content
+        else:
+            # console.print("[bold yellow]Warning: Clipboard is empty or contains only whitespace.[/bold yellow]") # Console accessible in main
+            return None
+    except pyperclip.PyperclipException as e:
+        # This error will be handled more visibly in main()
+        print(f"[DEBUG] PyperclipException in read_from_clipboard: {e}", file=sys.stderr) # For debugging
+        return None
+    except Exception as e: # Catch any other unexpected errors
+        print(f"[DEBUG] Unexpected error in read_from_clipboard: {e}", file=sys.stderr)
+        return None
+
+def read_from_stdin() -> str | None:
+    """
+    Reads all available text from standard input (sys.stdin).
+
+    Returns:
+        str | None: The text content read from stdin, or None if no data is piped.
+    """
+    if sys.stdin.isatty():
+        # stdin is connected to a terminal, not a pipe
+        # This situation should ideally be caught in main() before calling this.
+        # print("[DEBUG] read_from_stdin called but stdin is a TTY.", file=sys.stderr)
+        return None
+    try:
+        # Read all lines from stdin
+        stdin_content = sys.stdin.read()
+        if stdin_content and stdin_content.strip():
+            return stdin_content
+        else:
+            return None
+    except Exception as e:
+        print(f"[DEBUG] Error reading from stdin: {e}", file=sys.stderr)
+        return None
+
+def detect_text_format(text_sample: str) -> str:
+    """
+    Analyzes a sample of input text to guess its format.
+    Returns a string identifier for the detected format.
+    """
+    if not text_sample or not text_sample.strip():
+        return "text" # Default for empty or whitespace-only
+
+    # Make a sample for some checks if text is very long, e.g. first 2000 chars
+    sample = text_sample[:2000].strip()
+
+    # 1. Try JSON (most specific)
+    try:
+        # Check if it looks like an object or array before trying to parse
+        if (sample.startswith('{') and sample.endswith('}')) or \
+           (sample.startswith('[') and sample.endswith(']')):
+            json.loads(text_sample) # Try parsing the full text_sample for accuracy
+            return "json"
+    except json.JSONDecodeError:
+        pass # Not JSON
+
+    # 2. Try YAML (if PyYAML is available and imported)
+    if 'yaml' in sys.modules and yaml is not None: # Check if yaml module was successfully imported
+        try:
+            # YAML can be complex to detect with regex. Parsing is more reliable.
+            # Only try parsing if it has some common YAML indicators.
+            if ":" in sample and "\n" in sample: # Basic check for key-value and newlines
+                yaml.safe_load(text_sample) # Try parsing the full text_sample
+                return "yaml"
+        except (yaml.YAMLError, AttributeError): # AttributeError if yaml not fully imported
+             pass # Not YAML
+
+    # 3. Try HTML (look for tags)
+    # Simple regex for HTML tags - can be improved
+    if re.search(r"<[^>]+>", sample) and \
+       (re.search(r"<html[^>]*>", sample, re.IGNORECASE) or \
+        re.search(r"<body[^>]*>", sample, re.IGNORECASE) or \
+        re.search(r"<div[^>]*>", sample, re.IGNORECASE) or \
+        re.search(r"<p[^>]*>", sample, re.IGNORECASE)):
+        return "html"
+
+    # 4. Try Markdown (look for common patterns)
+    # More robust Markdown detection could involve more checks
+    if re.search(r"^(#\s|\#{2,6}\s)", sample, re.MULTILINE) or \
+       re.search(r"^(\*\s|-\s|\+\s|\d+\.\s)", sample, re.MULTILINE) or \
+       re.search(r"\[.+?\]\(.+?\)", sample) or \
+       re.search(r"(\*\*|__).+?(\*\*|__)", sample) or \
+       re.search(r"(\*|_).+?(\*|_)", sample):
+        return "markdown"
+        
+    # TODO: Add heuristics for "doculing" and "markitdown" when their syntax is known.
+    # Example placeholder:
+    # if "DOCULING_SPECIFIC_MARKER" in sample:
+    #     return "doculing"
+
+    # 5. Default to plain text
+    return "text"
+
+def parse_as_plaintext(text_content: str) -> str:
+    """Returns the plain text content as is."""
+    return text_content
+
+def parse_as_markdown(text_content: str) -> str:
+    """For V1, returns the Markdown text as is. Future versions might convert to HTML."""
+    return text_content
+
+def parse_as_json(text_content: str) -> str:
+    """
+    Validates and returns the JSON string.
+    Raises json.JSONDecodeError if invalid.
+    """
+    json.loads(text_content) # This will raise an error if invalid
+    return text_content
+
+def parse_as_html(text_content: str) -> str:
+    """Extracts plain text from HTML content."""
+    from bs4 import BeautifulSoup # Ensure BeautifulSoup is imported
+    soup = BeautifulSoup(text_content, 'html.parser')
+    # Remove scripts, styles, etc. that are noisy
+    for element in soup(['script', 'style', 'head', 'title', 'meta', '[document]', 'nav', 'footer', 'aside']):
+        element.decompose()
+    # Get text, try to preserve some structure with newlines
+    return soup.get_text(separator='\n', strip=True)
+
+def parse_as_yaml(text_content: str) -> str:
+    """
+    Validates and returns the YAML string.
+    Requires PyYAML. Raises yaml.YAMLError if invalid.
+    """
+    if 'yaml' not in sys.modules or yaml is None:
+        # print("[Warning] PyYAML module not available. Cannot parse as YAML. Returning as plain text.", file=sys.stderr)
+        return text_content # Fallback if yaml not imported
+    yaml.safe_load(text_content) # This will raise an error if invalid
+    return text_content
+
+# --- Placeholders for custom formats ---
+def parse_as_doculing(text_content: str) -> str:
+    """Placeholder for Doculing parsing. Returns text as is for V1."""
+    # TODO: Implement actual Doculing parsing logic when specifications are available.
+    return text_content
+
+def parse_as_markitdown(text_content: str) -> str:
+    """Placeholder for Markitdown parsing. Returns text as is for V1."""
+    # TODO: Implement actual Markitdown parsing logic when specifications are available.
+    return text_content
+
+def get_parser_for_format(format_name: str) -> callable:
+    """
+    Returns the appropriate parser function based on the format name.
+    Defaults to parse_as_plaintext if format is unknown.
+    """
+    parsers = {
+        "text": parse_as_plaintext,
+        "markdown": parse_as_markdown,
+        "json": parse_as_json,
+        "html": parse_as_html,
+        "yaml": parse_as_yaml,
+        "doculing": parse_as_doculing,       # Placeholder
+        "markitdown": parse_as_markitdown,   # Placeholder
+    }
+    return parsers.get(format_name, parse_as_plaintext) # Default to plaintext parser
+
+def process_text_stream(raw_text_content: str, source_info: dict, console: Console, format_override: str | None = None) -> str | None:
+    """
+    Processes text from a stream (stdin or clipboard).
+    Detects format, parses, and builds the XML structure.
+
+    Args:
+        raw_text_content (str): The raw text from the input stream.
+        source_info (dict): Information about the source, e.g., {'type': 'stdin'}.
+        console (Console): The Rich console object for printing messages.
+        format_override (str | None): User-specified format, if any.
+
+    Returns:
+        str | None: The XML structured output string, or None if processing fails.
+    """
+    actual_format = ""
+    parsed_content = ""
+
+    if format_override:
+        actual_format = format_override.lower()
+        console.print(f"[green]Processing input as [bold]{actual_format}[/bold] (user override).[/green]")
+    else:
+        actual_format = detect_text_format(raw_text_content)
+        console.print(f"[green]Detected format: [bold]{actual_format}[/bold][/green]")
+
+    parser_function = get_parser_for_format(actual_format)
+
+    try:
+        parsed_content = parser_function(raw_text_content)
+    except json.JSONDecodeError as e:
+        console.print(f"[bold red]Error:[/bold red] Input specified or detected as JSON, but it's not valid JSON. Details: {e}")
+        return None
+    except yaml.YAMLError as e: # Assuming PyYAML is used
+        console.print(f"[bold red]Error:[/bold red] Input specified or detected as YAML, but it's not valid YAML. Details: {e}")
+        return None
+    except Exception as e: # Catch-all for other parsing errors
+        console.print(f"[bold red]Error:[/bold red] Failed to parse content as {actual_format}. Details: {e}")
+        return None
+
+    # XML Generation for the stream
+    # This XML structure should be consistent with how single files/sources are wrapped.
+    # The escape_xml function currently does nothing, which is correct for content.
+    # Attributes of XML tags *should* be escaped if they could contain special chars,
+    # but 'stdin', 'clipboard', and format names are safe.
+    
+    source_type_attr = escape_xml(source_info.get('type', 'unknown_stream'))
+    format_attr = escape_xml(actual_format)
+
+    # Build the XML for this specific stream source
+    # This part creates the XML for THIS stream.
+    # It will be wrapped by <onefilellm_output> in main() if it's the only input,
+    # or combined with other sources by combine_xml_outputs() if multiple inputs are supported later.
+    
+    # For now, let's assume process_text_stream provides the content for a single <source> tag
+    # and main() will handle the <onefilellm_output> wrapper.
+    
+    # XML structure should mirror existing <source> tags for files/URLs where possible
+    # but with type="stdin" or type="clipboard".
+    # Instead of <file path="...">, we might have a <content_block> or similar.
+
+    # Let's create a simple XML structure for the stream content.
+    # The content itself (parsed_content) is NOT XML-escaped, preserving its raw form.
+    xml_parts = [
+        f'<source type="{source_type_attr}" processed_as_format="{format_attr}">',
+        f'<content>{escape_xml(parsed_content)}</content>', # escape_xml does nothing to parsed_content
+        f'</source>'
+    ]
+    final_xml_for_stream = "\n".join(xml_parts)
+    
+    return final_xml_for_stream
 
 stop_words = set()
 if ENABLE_COMPRESSION_AND_NLTK:
@@ -1521,6 +1766,194 @@ def process_input(input_path, progress=None, task=None):
 def main():
     console = Console()
 
+    # Check if help is requested
+    if len(sys.argv) > 1 and sys.argv[1] in ["--help", "-h"]:
+        help_text = Text("\nonefilellm - Content Aggregation Tool\n", style="bright_white bold")
+        help_text.append("\nUsage:", style="bright_blue")
+        help_text.append("\n  python onefilellm.py [options] [path|url|alias]", style="bright_white")
+        
+        help_text.append("\n\nStandard Input Options:", style="bright_green")
+        help_text.append("\n  - ", style="bright_white")
+        help_text.append("                      Read text from standard input (stdin)", style="bright_cyan")
+        help_text.append("\n                           Example: cat report.txt | python onefilellm.py -", style="dim")
+        
+        help_text.append("\n  -c, --clipboard", style="bright_white")
+        help_text.append("         Read text from the system clipboard", style="bright_cyan")
+        
+        help_text.append("\n  -f TYPE, --format TYPE", style="bright_white")
+        help_text.append("  Force processing the input stream as TYPE", style="bright_cyan")
+        help_text.append("\n                           Supported TYPEs: text, markdown, json, html, yaml,", style="dim")
+        help_text.append("\n                                            doculing, markitdown", style="dim")
+        help_text.append("\n                           Example: cat README.md | python onefilellm.py - -f markdown", style="dim")
+        
+        help_text.append("\n\nAlias Management:", style="bright_green")
+        help_text.append("\n  --add-alias NAME URL    Create or update an alias NAME for the URL/path", style="bright_white")
+        help_text.append("\n  --alias-from-clipboard NAME", style="bright_white")
+        help_text.append("  Create an alias from clipboard contents", style="bright_cyan")
+        
+        help_text.append("\n\nGeneral Options:", style="bright_green")
+        help_text.append("\n  -h, --help", style="bright_white")
+        help_text.append("             Show this help message and exit", style="bright_cyan")
+        
+        help_panel = Panel(
+            help_text,
+            expand=False,
+            border_style="bold",
+            padding=(1, 2)
+        )
+        console.print(help_panel)
+        return
+
+    # --- Start of New CLI Argument Handling for Streams ---
+    raw_args = sys.argv[1:] # Get arguments after the script name
+
+    is_stream_input_mode = False
+    stream_source_dict = {} # To store {'type': 'stdin'} or {'type': 'clipboard'}
+    stream_content_to_process = None
+    user_format_override = None # For --format TYPE
+
+    # 1. Check for --format or -f (must be done before consuming other args)
+    temp_raw_args = list(raw_args) # Create a copy to modify while parsing --format
+    
+    try:
+        if "--format" in temp_raw_args:
+            idx = temp_raw_args.index("--format")
+            if idx + 1 < len(temp_raw_args):
+                user_format_override = temp_raw_args[idx + 1].lower()
+                # Remove --format and its value so they don't interfere later
+                raw_args.pop(raw_args.index("--format")) 
+                raw_args.pop(raw_args.index(user_format_override))
+            else:
+                console.print("[bold red]Error: --format option requires a TYPE argument (e.g., --format markdown).[/bold red]")
+                return
+        elif "-f" in temp_raw_args:
+            idx = temp_raw_args.index("-f")
+            if idx + 1 < len(temp_raw_args):
+                user_format_override = temp_raw_args[idx + 1].lower()
+                raw_args.pop(raw_args.index("-f"))
+                raw_args.pop(raw_args.index(user_format_override))
+            else:
+                console.print("[bold red]Error: -f option requires a TYPE argument (e.g., -f markdown).[/bold red]")
+                return
+    except ValueError: # Should not happen if --format/ -f is present, but good for safety
+        console.print("[bold red]Error parsing --format/-f option.[/bold red]")
+        return
+    
+    # Supported formats for the --format flag (as per UX requirements)
+    supported_formats_for_override = ["text", "markdown", "json", "yaml", "html", "doculing", "markitdown"]
+    if user_format_override and user_format_override not in supported_formats_for_override:
+        # Print to stderr for better error detection in tests
+        print(f"Error: Invalid format type '{user_format_override}' specified with --format/-f.", file=sys.stderr)
+        console.print(f"[bold red]Error: Invalid format type '{user_format_override}' specified with --format/-f.[/bold red]")
+        console.print(f"Supported types are: {', '.join(supported_formats_for_override)}")
+        sys.exit(1)  # Exit with error code for better error detection
+
+    # 2. Check for stream input flags ('-' or '--clipboard' / '-c')
+    # These flags should typically be the primary non-option argument if no alias/path is given
+    
+    if "-" in raw_args: # Standard input
+        # Ensure '-' is the only primary arg, or handle it if it's part of alias resolution later.
+        # For now, assume if '-' is present, it's for stdin.
+        # We also need to make sure it's not an alias name starting/ending with '-'
+        # For simplicity in V1, if '-' is present, we assume stdin mode.
+        if not sys.stdin.isatty(): # Check if data is actually being piped
+            console.print("[bright_blue]Reading from standard input...[/bright_blue]")
+            stream_content_to_process = read_from_stdin()
+            if stream_content_to_process is None or not stream_content_to_process.strip():
+                console.print("[bold red]Error: No input received from standard input or input is empty.[/bold red]")
+                return
+            is_stream_input_mode = True
+            stream_source_dict = {'type': 'stdin'}
+        else:
+            # '-' was passed but nothing is piped. This could be an error,
+            # or it could be part of a filename/alias. The existing alias logic might handle this.
+            # For now, if isatty() is true, we won't enter stream_input_mode here.
+            # The user should pipe something: `echo "data" | python onefilellm.py -`
+            warning_msg = "Warning: '-' argument received, but no data seems to be piped via standard input."
+            # Print to both stdout and stderr for better test detection
+            print(warning_msg)
+            print(warning_msg, file=sys.stderr)  
+            console.print(f"[bold yellow]{warning_msg}[/bold yellow]")
+            console.print("To use standard input, pipe data like: `your_command | python onefilellm.py -`")
+            # Let it fall through to existing alias/path processing to see if "-" is part of a name.
+            # If it's truly meant for stdin without a pipe, it will fail if no content is read.
+
+    elif "--clipboard" in raw_args or "-c" in raw_args:
+        console.print("[bright_blue]Reading from clipboard...[/bright_blue]")
+        stream_content_to_process = read_from_clipboard()
+        if stream_content_to_process is None or not stream_content_to_process.strip():
+            console.print("[bold red]Error: Clipboard is empty, does not contain text, or could not be accessed.[/bold red]")
+            # Check for common Linux issue
+            if sys.platform.startswith('linux'):
+                console.print("[yellow]On Linux, you might need to install 'xclip' or 'xsel': `sudo apt install xclip`[/yellow]")
+            return
+        is_stream_input_mode = True
+        stream_source_dict = {'type': 'clipboard'}
+    # --- End of New CLI Argument Handling for Streams ---
+
+    # --- Existing Alias Management Commands (should be checked before stream mode fully takes over if stream args were not used) ---
+    # This logic should come *after* we check for stream-specific args,
+    # so --add-alias isn't mistaken for a stream operation.
+    # We need to adjust `raw_args` if --format was consumed.
+    
+    # Re-check raw_args because --format might have been removed
+    current_cli_args_for_alias_check = sys.argv[1:] # Use original full list for alias commands
+    if "--add-alias" in current_cli_args_for_alias_check:
+        if handle_add_alias(current_cli_args_for_alias_check, console): # handle_add_alias expects original raw_args
+            return 
+    elif "--alias-from-clipboard" in current_cli_args_for_alias_check:
+        if handle_alias_from_clipboard(current_cli_args_for_alias_check, console):
+            return
+    
+    # --- Main Processing Logic Dispatch ---
+    if is_stream_input_mode:
+        # We are in stream processing mode
+        if stream_content_to_process: # Ensure we have content
+            xml_output_for_stream = process_text_stream(
+                stream_content_to_process, 
+                stream_source_dict, 
+                console, # Pass the console object
+                user_format_override
+            )
+
+            if xml_output_for_stream:
+                # For a single stream input, it forms the entire <onefilellm_output>
+                final_combined_output = f"<onefilellm_output>\n{xml_output_for_stream}\n</onefilellm_output>"
+
+                # Use existing output mechanisms
+                output_file = "output.xml" 
+                processed_file = "compressed_output.txt" 
+
+                console.print(f"\nWriting output to {output_file}...")
+                with open(output_file, "w", encoding="utf-8") as file:
+                    file.write(final_combined_output)
+                console.print("Output written successfully.")
+
+                uncompressed_token_count = get_token_count(final_combined_output)
+                console.print(f"\n[bright_green]Content Token Count (approx):[/bright_green] [bold bright_cyan]{uncompressed_token_count}[/bold bright_cyan]")
+
+                if ENABLE_COMPRESSION_AND_NLTK:
+                    # ... (existing compression logic using output_file and processed_file) ...
+                    console.print("\n[bright_magenta]Compression and NLTK processing enabled.[/bright_magenta]")
+                    print(f"Preprocessing text and writing compressed output to {processed_file}...")
+                    preprocess_text(output_file, processed_file) # Pass correct output_file
+                    print("Compressed file written.")
+                    compressed_text_content = safe_file_read(processed_file)
+                    compressed_token_count = get_token_count(compressed_text_content)
+                    console.print(f"[bright_green]Compressed Token Count (approx):[/bright_green] [bold bright_cyan]{compressed_token_count}[/bold bright_cyan]")
+
+                try:
+                    pyperclip.copy(final_combined_output)
+                    console.print(f"\n[bright_white]The contents of [bold bright_blue]{output_file}[/bold bright_blue] have been copied to the clipboard.[/bright_white]")
+                except Exception as clip_err:
+                    console.print(f"\n[bold yellow]Warning:[/bold yellow] Could not copy to clipboard: {clip_err}")
+            else:
+                console.print("[bold red]Error: Text stream processing failed to generate output.[/bold red]")
+        # else: stream_content_to_process was None or empty, error already printed.
+        return # Exit after stream processing
+
+    # --- ELSE: Fall through to existing file/URL/alias processing logic ---
+
     # Updated intro text to reflect XML output
     intro_text = Text("\nProcesses Inputs and Wraps Content in XML:\n", style="dodger_blue1")
     input_types = [
@@ -1532,6 +1965,8 @@ def main():
         ("• YouTube video URL (Transcript)", "bright_white"),
         ("• ArXiv Paper URL (PDF Text)", "bright_white"),
         ("• DOI or PMID (via Sci-Hub, best effort)", "bright_white"),
+        ("• Text from stdin (e.g., `cat file.txt | onefilellm -`)", "light_sky_blue1"), # New
+        ("• Text from clipboard (e.g., `onefilellm --clipboard`)", "light_sky_blue1"), # New
     ]
 
     for input_type, color in input_types:
@@ -1550,34 +1985,38 @@ def main():
     )
     console.print(intro_panel)
 
-    # Get all arguments after script name
-    raw_args = sys.argv[1:]
-
-    # --- Handle Alias Management Commands ---
-    if "--add-alias" in raw_args:
-        if handle_add_alias(raw_args, console):
-            return # Exit after handling alias command
-    elif "--alias-from-clipboard" in raw_args:
-        if handle_alias_from_clipboard(raw_args, console):
-            return # Exit after handling alias command
-    # --- End Alias Management Commands ---
-
     # --- Determine Input Paths (resolve aliases) ---
     final_input_sources = []
-    if raw_args:
+    if raw_args: # Use the raw_args that might have had --format removed
         for arg_string in raw_args:
-            final_input_sources.extend(resolve_single_input_source(arg_string, console))
+            # Important: If '-', '--clipboard', or '-c' are still in raw_args here,
+            # it means they weren't consumed by stream mode (e.g., '-' with no pipe).
+            # The resolve_single_input_source should probably ignore these specific flags
+            # or treat them as invalid paths if they reach this point.
+            if arg_string not in ["-", "--clipboard", "-c"]: # Avoid re-processing stream flags as paths
+                final_input_sources.extend(resolve_single_input_source(arg_string, console))
     
-    if not final_input_sources: # No command line args, or all were empty aliases or resolved to empty
+    if not final_input_sources: # No command line args left, or all were empty aliases or resolved to empty
         # This ensures interactive prompt only if no actual inputs determined
         # and it wasn't an alias management command that already exited.
-        user_input_string = Prompt.ask("\n[bold dodger_blue1]Enter the path or URL[/bold dodger_blue1]", console=console).strip()
+        user_input_string = Prompt.ask("\n[bold dodger_blue1]Enter the path, URL, or alias[/bold dodger_blue1]", console=console).strip()
         if user_input_string: # Process only if user provided some input
+            # Check again if user typed a stream command here by mistake
+            if user_input_string == "-":
+                console.print("[bold red]Error: To use '-', pipe data via stdin: `your_command | python onefilellm.py -`[/bold red]")
+                return
+            elif user_input_string == "--clipboard" or user_input_string == "-c":
+                console.print("[bold red]Error: To use clipboard, run as: `python onefilellm.py --clipboard`[/bold red]")
+                return
             final_input_sources.extend(resolve_single_input_source(user_input_string, console))
     
     # For minimal changes later, assign to input_paths
     input_paths = final_input_sources
     # --- End Determine Input Paths ---
+
+    if not input_paths:
+        console.print("[yellow]No valid input sources provided. Exiting.[/yellow]")
+        return
 
     # Define output filenames
     output_file = "output.xml" # Changed extension to reflect content
