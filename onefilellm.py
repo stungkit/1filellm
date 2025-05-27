@@ -26,6 +26,15 @@ import xml.etree.ElementTree as ET # Keep for preprocess_text if needed
 import pandas as pd
 from typing import Union, List, Dict
 
+# Import utility functions
+from utils import (
+    safe_file_read, read_from_clipboard, read_from_stdin,
+    detect_text_format, parse_as_plaintext, parse_as_markdown,
+    parse_as_json, parse_as_html, parse_as_yaml,
+    download_file, is_same_domain, is_within_depth,
+    is_excluded_file, is_allowed_filetype, escape_xml
+)
+
 # Try to import yaml, but don't fail if not available
 try:
     import yaml
@@ -55,154 +64,6 @@ ALIAS_DIR = Path.home() / ALIAS_DIR_NAME
 def ensure_alias_dir_exists():
     """Ensures the alias directory exists, creating it if necessary."""
     ALIAS_DIR.mkdir(parents=True, exist_ok=True)
-
-def safe_file_read(filepath, fallback_encoding='latin1'):
-    try:
-        with open(filepath, "r", encoding='utf-8') as file:
-            return file.read()
-    except UnicodeDecodeError:
-        with open(filepath, "r", encoding=fallback_encoding) as file:
-            return file.read()
-
-def read_from_clipboard() -> str | None:
-    """
-    Retrieves text content from the system clipboard.
-
-    Returns:
-        str | None: The text content from the clipboard, or None if empty or error.
-    """
-    try:
-        clipboard_content = pyperclip.paste()
-        if clipboard_content and clipboard_content.strip():
-            return clipboard_content
-        else:
-            # console.print("[bold yellow]Warning: Clipboard is empty or contains only whitespace.[/bold yellow]") # Console accessible in main
-            return None
-    except pyperclip.PyperclipException as e:
-        # This error will be handled more visibly in main()
-        print(f"[DEBUG] PyperclipException in read_from_clipboard: {e}", file=sys.stderr) # For debugging
-        return None
-    except Exception as e: # Catch any other unexpected errors
-        print(f"[DEBUG] Unexpected error in read_from_clipboard: {e}", file=sys.stderr)
-        return None
-
-def read_from_stdin() -> str | None:
-    """
-    Reads all available text from standard input (sys.stdin).
-
-    Returns:
-        str | None: The text content read from stdin, or None if no data is piped.
-    """
-    if sys.stdin.isatty():
-        # stdin is connected to a terminal, not a pipe
-        # This situation should ideally be caught in main() before calling this.
-        # print("[DEBUG] read_from_stdin called but stdin is a TTY.", file=sys.stderr)
-        return None
-    try:
-        # Read all lines from stdin
-        stdin_content = sys.stdin.read()
-        if stdin_content and stdin_content.strip():
-            return stdin_content
-        else:
-            return None
-    except Exception as e:
-        print(f"[DEBUG] Error reading from stdin: {e}", file=sys.stderr)
-        return None
-
-def detect_text_format(text_sample: str) -> str:
-    """
-    Analyzes a sample of input text to guess its format.
-    Returns a string identifier for the detected format.
-    """
-    if not text_sample or not text_sample.strip():
-        return "text" # Default for empty or whitespace-only
-
-    # Make a sample for some checks if text is very long, e.g. first 2000 chars
-    sample = text_sample[:2000].strip()
-
-    # 1. Try JSON (most specific)
-    try:
-        # Check if it looks like an object or array before trying to parse
-        if (sample.startswith('{') and sample.endswith('}')) or \
-           (sample.startswith('[') and sample.endswith(']')):
-            json.loads(text_sample) # Try parsing the full text_sample for accuracy
-            return "json"
-    except json.JSONDecodeError:
-        pass # Not JSON
-
-    # 2. Try YAML (if PyYAML is available and imported)
-    if 'yaml' in sys.modules and yaml is not None: # Check if yaml module was successfully imported
-        try:
-            # YAML can be complex to detect with regex. Parsing is more reliable.
-            # Only try parsing if it has some common YAML indicators.
-            if ":" in sample and "\n" in sample: # Basic check for key-value and newlines
-                yaml.safe_load(text_sample) # Try parsing the full text_sample
-                return "yaml"
-        except (yaml.YAMLError, AttributeError): # AttributeError if yaml not fully imported
-             pass # Not YAML
-
-    # 3. Try HTML (look for tags)
-    # Simple regex for HTML tags - can be improved
-    if re.search(r"<[^>]+>", sample) and \
-       (re.search(r"<html[^>]*>", sample, re.IGNORECASE) or \
-        re.search(r"<body[^>]*>", sample, re.IGNORECASE) or \
-        re.search(r"<div[^>]*>", sample, re.IGNORECASE) or \
-        re.search(r"<p[^>]*>", sample, re.IGNORECASE)):
-        return "html"
-
-    # 4. Try Markdown (look for common patterns)
-    # More robust Markdown detection could involve more checks
-    if re.search(r"^(#\s|\#{2,6}\s)", sample, re.MULTILINE) or \
-       re.search(r"^(\*\s|-\s|\+\s|\d+\.\s)", sample, re.MULTILINE) or \
-       re.search(r"\[.+?\]\(.+?\)", sample) or \
-       re.search(r"(\*\*|__).+?(\*\*|__)", sample) or \
-       re.search(r"(\*|_).+?(\*|_)", sample):
-        return "markdown"
-        
-    # TODO: Add heuristics for "doculing" and "markitdown" when their syntax is known.
-    # Example placeholder:
-    # if "DOCULING_SPECIFIC_MARKER" in sample:
-    #     return "doculing"
-
-    # 5. Default to plain text
-    return "text"
-
-def parse_as_plaintext(text_content: str) -> str:
-    """Returns the plain text content as is."""
-    return text_content
-
-def parse_as_markdown(text_content: str) -> str:
-    """For V1, returns the Markdown text as is. Future versions might convert to HTML."""
-    return text_content
-
-def parse_as_json(text_content: str) -> str:
-    """
-    Validates and returns the JSON string.
-    Raises json.JSONDecodeError if invalid.
-    """
-    json.loads(text_content) # This will raise an error if invalid
-    return text_content
-
-def parse_as_html(text_content: str) -> str:
-    """Extracts plain text from HTML content."""
-    from bs4 import BeautifulSoup # Ensure BeautifulSoup is imported
-    soup = BeautifulSoup(text_content, 'html.parser')
-    # Remove scripts, styles, etc. that are noisy
-    for element in soup(['script', 'style', 'head', 'title', 'meta', '[document]', 'nav', 'footer', 'aside']):
-        element.decompose()
-    # Get text, try to preserve some structure with newlines
-    return soup.get_text(separator='\n', strip=True)
-
-def parse_as_yaml(text_content: str) -> str:
-    """
-    Validates and returns the YAML string.
-    Requires PyYAML. Raises yaml.YAMLError if invalid.
-    """
-    if 'yaml' not in sys.modules or yaml is None:
-        # print("[Warning] PyYAML module not available. Cannot parse as YAML. Returning as plain text.", file=sys.stderr)
-        return text_content # Fallback if yaml not imported
-    yaml.safe_load(text_content) # This will raise an error if invalid
-    return text_content
 
 # --- Placeholders for custom formats ---
 def parse_as_doculing(text_content: str) -> str:
@@ -317,13 +178,6 @@ if TOKEN == 'default_token_here':
 
 headers = {"Authorization": f"token {TOKEN}"} if TOKEN != 'default_token_here' else {}
 
-def download_file(url, target_path):
-    # Add headers conditionally
-    response = requests.get(url, headers=headers if TOKEN != 'default_token_here' else None)
-    response.raise_for_status()
-    with open(target_path, "wb") as f:
-        f.write(response.content)
-
 def process_ipynb_file(temp_file):
     try:
         with open(temp_file, "r", encoding='utf-8', errors='ignore') as f:
@@ -338,15 +192,6 @@ def process_ipynb_file(temp_file):
 
 
 # --- XML Handling ---
-def escape_xml(text):
-    """
-    Returns the text unchanged.
-    This function previously escaped XML special characters (&, <, >),
-    but that made code content unreadable. It's kept for potential future use
-    (e.g., escaping attributes if needed) but currently acts as a pass-through
-    to ensure code readability within XML tags.
-    """
-    return str(text)
 # --- End XML Handling ---
 
 
@@ -1067,21 +912,6 @@ def get_token_count(text, disallowed_special=[], chunk_size=1000):
     return total_tokens
 
 
-def is_same_domain(base_url, new_url):
-    return urlparse(base_url).netloc == urlparse(new_url).netloc
-
-def is_within_depth(base_url, current_url, max_depth):
-    # Simple path depth check
-    base_path = urlparse(base_url).path.rstrip('/')
-    current_path = urlparse(current_url).path.rstrip('/')
-    # Ensure current path starts with base path
-    if not current_path.startswith(base_path):
-        return False
-    base_depth = len(base_path.split('/')) if base_path else 0
-    current_depth = len(current_path.split('/')) if current_path else 0
-    return (current_depth - base_depth) <= max_depth
-
-
 def process_web_pdf(url):
     """Downloads and extracts text from a PDF found during web crawl."""
     temp_pdf_path = 'temp_web.pdf'
@@ -1554,54 +1384,6 @@ def process_github_issue(issue_url):
     except Exception as e: # Catch other potential errors
          print(f"[bold red]Unexpected error processing GitHub issue {issue_url}: {e}[/bold red]")
          return f'<source type="github_issue" url="{escape_xml(issue_url)}"><error>Unexpected error: {escape_xml(str(e))}</error></source>'
-
-
-def is_excluded_file(filename):
-    """Check if a file should be excluded based on patterns."""
-    excluded_patterns = [
-        '.pb.go', '_grpc.pb.go', 'mock_', '/generated/', '/mocks/', '.gen.', '_generated.',
-        # Add common compiled/generated file patterns
-        '.min.js', '.min.css', '.dll', '.o', '.so', '.a', '.class', '.pyc',
-        # Common dependency/build directories already handled by EXCLUDED_DIRS, but can add file patterns too
-        'package-lock.json', 'yarn.lock', 'go.sum',
-    ]
-    # Check basename and full path for flexibility
-    basename = os.path.basename(filename)
-    return any(pattern in filename for pattern in excluded_patterns) or \
-           any(basename.startswith(pattern) for pattern in ['mock_']) or \
-           any(basename.endswith(pattern) for pattern in ['.pyc', '.pb.go', '_grpc.pb.go'])
-
-def is_allowed_filetype(filename):
-    """Check if a file should be processed based on its extension and exclusion patterns."""
-    if is_excluded_file(filename):
-        return False
-
-    # Prioritize text-based formats commonly used in code/docs
-    allowed_extensions = [
-        # Code
-        '.py', '.go', '.java', '.c', '.cpp', '.h', '.hpp', '.cs', '.js', '.ts', '.jsx', '.tsx',
-        '.rb', '.php', '.swift', '.kt', '.scala', '.rs', '.lua', '.pl', '.sh', '.bash', '.zsh',
-        '.ps1', '.sql', '.groovy', '.dart',
-        # Config/Data
-        '.json', '.yaml', '.yml', '.xml', '.toml', '.ini', '.cfg', '.conf', '.properties',
-        '.csv', '.tsv', '.proto', '.graphql', '.tf', '.tfvars', '.hcl',
-        # Markup/Docs
-        '.md', '.txt', '.rst', '.tex', '.html', '.htm', '.css', '.scss', '.less', '.pdf',
-        # Notebooks
-        '.ipynb',
-        # Spreadsheets
-        '.xls', '.xlsx',
-        # Other useful text
-        '.dockerfile', 'Dockerfile', '.gitignore', '.gitattributes', 'Makefile', '.env',
-        '.cjs', '.localhost', '.example', # From original list
-        'go.mod', # Go module file
-    ]
-    # Check for exact filename matches first (like Dockerfile)
-    basename = os.path.basename(filename)
-    if basename in ['Dockerfile', 'Makefile', '.gitignore', '.gitattributes', 'go.mod']:
-        return True
-    # Then check extensions
-    return any(filename.lower().endswith(ext) for ext in allowed_extensions)
 
 
 def combine_xml_outputs(outputs):
