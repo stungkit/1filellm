@@ -102,5 +102,6 @@ test_file.pdf
 clipboard_content.txt
 output.xml
 test_dir/
-"REFACTORING_PLAN.md" 
-"fix.md" 
+REFACTORING_PLAN.md
+fix.md
+test_error.txt 
