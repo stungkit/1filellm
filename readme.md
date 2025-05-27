@@ -12,9 +12,9 @@ OneFileLLM is a command-line tool designed to streamline the creation of informa
 - Automatic copying of uncompressed text to the clipboard for easy pasting into LLMs
 - Token count reporting for both compressed and uncompressed outputs
 - XML encapsulation of output for improved LLM performance
-- **NEW:** Text stream input processing directly from stdin or clipboard
-- **NEW:** Format detection and processing for plain text, Markdown, JSON, HTML, and YAML
-- **NEW:** Format override option to control input processing
+- Text stream input processing directly from stdin or clipboard
+- Format detection and processing for plain text, Markdown, JSON, HTML, and YAML
+- Format override option to control input processing
 - Excel spreadsheet (.xls/.xlsx) processing to Markdown tables
 - Alias system for frequently used sources
 - Proper PDF text extraction from local files
@@ -249,39 +249,6 @@ python onefilellm.py github_repo research_sources
 ```
 
 Aliases are stored in your home directory at `~/.onefilellm_aliases/` for easy access from any location.
-
-### Launcher Scripts
-
-OneFileLLM now includes convenient launcher scripts for different platforms:
-
-#### Windows
-
-Run `run_onefilellm.bat` directly from Windows Explorer or Command Prompt:
-
-```
-run_onefilellm.bat github_repo
-```
-
-You can create a shortcut to `run_onefilellm.bat` or add its directory to your system's PATH environment variable to run it from any command prompt.
-
-#### Linux/macOS
-
-Use the shell script launcher:
-
-```bash
-./run_onefilellm.sh github_repo
-```
-
-Make it globally accessible:
-
-```bash
-# Add to path (option 1)
-sudo ln -s /path/to/your/project/run_onefilellm.sh /usr/local/bin/onefilellm
-
-# Or make executable and move (option 2)
-chmod +x run_onefilellm.sh
-cp run_onefilellm.sh ~/bin/onefilellm
-```
 
 ### Expected Inputs and Resulting Outputs
 The tool supports the following input options:
