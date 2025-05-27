@@ -22,93 +22,6 @@ OneFileLLM is a command-line tool designed to streamline the creation of informa
 
 ![image](https://github.com/jimmc414/1filellm/assets/6346529/73c24bcb-7be7-4b67-8591-3f1404b98fba)
 
-## Data Flow Diagram
-
-```
-                                 +--------------------------------+
-                                 |      External Services         |
-                                 |--------------------------------|
-                                 |  GitHub API  | YouTube API     |
-                                 |  Sci-Hub     | ArXiv           |
-                                 +--------------------------------+
-                                           |
-                                           |
-                                           v
- +----------------------+          +---------------------+         +----------------------+
- |                      |          |                     |         |                      |
- |        User          |          |  Command Line Tool  |         |  External Libraries  |
- |----------------------|          |---------------------|         |----------------------|
- | - Provides input URL |--------->| - Handles user input|         | - Requests           |
- | - Provides text via  |          | - Detects source    |<--------| - BeautifulSoup      |
- |   pipe or clipboard  |          |   type              |         | - PyPDF2             |
- | - Receives text      |          | - Calls appropriate |         | - Tiktoken           |
- |   in clipboard       |<---------| - processing modules|         | - NLTK               |
- |                      |          | - Preprocesses text |         | - Nbformat           |
- +----------------------+          | - Generates output  |         | - Nbconvert          |
-                                   |   files             |         | - YouTube Transcript |
-                                   | - Copies text to    |         |   API                |
-                                   |   clipboard         |         | - Pyperclip          |
-                                   | - Reports token     |         | - Wget               |
-                                   |   count             |         | - Tqdm               |
-                                   +---------------------+         | - Rich               |
-                                           |                       | - PyYAML             |
-                                           |                       +----------------------+
-                                           v
-                                    +---------------------+
-                                    | Source Type         |
-                                    | Detection           |
-                                    |---------------------|
-                                    | - Determines type   |
-                                    |   of source         |
-                                    +---------------------+
-                                           |
-                                           v
-                                    +---------------------+
-                                    | Processing Modules  |
-                                    |---------------------|
-                                    | - GitHub Repo Proc  |
-                                    | - Local Dir Proc    |
-                                    | - YouTube Transcript|
-                                    |   Proc              |
-                                    | - ArXiv PDF Proc    |
-                                    | - Sci-Hub Paper Proc|
-                                    | - Webpage Crawling  |
-                                    |   Proc              |
-                                    | - Text Stream Proc  |
-                                    +---------------------+
-                                           |
-                                           v
-                                    +---------------------+
-                                    | Text Preprocessing  |
-                                    |---------------------|
-                                    | - Stopword removal  |
-                                    | - Lowercase         |
-                                    |   conversion        |
-                                    | - Text cleaning     |
-                                    +---------------------+
-                                           |
-                                           v
-                                    +---------------------+
-                                    | Output Generation   |
-                                    |---------------------|
-                                    | - Compressed text   |
-                                    |   file output       |
-                                    | - Uncompressed text |
-                                    |   file output       |
-                                    +---------------------+
-                                           |
-                                           v
-                                    +---------------------+
-                                    | Token Count         |
-                                    | Reporting           |
-                                    |---------------------|
-                                    | - Report token count|
-                                    |                     |
-                                    | - Copies text to    |
-                                    |   clipboard         |
-                                    +---------------------+
-```
-
 ## Installation
 
 ### Prerequisites
@@ -393,6 +306,96 @@ All output is encapsulated in XML tags. This structure was implemented based on 
 Where `[source_type]` could be one of: "github_repository", "github_pull_request", "github_issue", "arxiv_paper", "youtube_transcript", "web_documentation", "sci_hub_paper", "local_directory", "local_file", "stdin", or "clipboard".
 
 This XML structure provides clear delineation of different content types and sources, improving the LLM's understanding and processing of the input.
+
+
+## Data Flow Diagram
+
+```
+                                 +--------------------------------+
+                                 |      External Services         |
+                                 |--------------------------------|
+                                 |  GitHub API  | YouTube API     |
+                                 |  Sci-Hub     | ArXiv           |
+                                 +--------------------------------+
+                                           |
+                                           |
+                                           v
+ +----------------------+          +---------------------+         +----------------------+
+ |                      |          |                     |         |                      |
+ |        User          |          |  Command Line Tool  |         |  External Libraries  |
+ |----------------------|          |---------------------|         |----------------------|
+ | - Provides input URL |--------->| - Handles user input|         | - Requests           |
+ | - Provides text via  |          | - Detects source    |<--------| - BeautifulSoup      |
+ |   pipe or clipboard  |          |   type              |         | - PyPDF2             |
+ | - Receives text      |          | - Calls appropriate |         | - Tiktoken           |
+ |   in clipboard       |<---------| - processing modules|         | - NLTK               |
+ |                      |          | - Preprocesses text |         | - Nbformat           |
+ +----------------------+          | - Generates output  |         | - Nbconvert          |
+                                   |   files             |         | - YouTube Transcript |
+                                   | - Copies text to    |         |   API                |
+                                   |   clipboard         |         | - Pyperclip          |
+                                   | - Reports token     |         | - Wget               |
+                                   |   count             |         | - Tqdm               |
+                                   +---------------------+         | - Rich               |
+                                           |                       | - PyYAML             |
+                                           |                       +----------------------+
+                                           v
+                                    +---------------------+
+                                    | Source Type         |
+                                    | Detection           |
+                                    |---------------------|
+                                    | - Determines type   |
+                                    |   of source         |
+                                    +---------------------+
+                                           |
+                                           v
+                                    +---------------------+
+                                    | Processing Modules  |
+                                    |---------------------|
+                                    | - GitHub Repo Proc  |
+                                    | - Local Dir Proc    |
+                                    | - YouTube Transcript|
+                                    |   Proc              |
+                                    | - ArXiv PDF Proc    |
+                                    | - Sci-Hub Paper Proc|
+                                    | - Webpage Crawling  |
+                                    |   Proc              |
+                                    | - Text Stream Proc  |
+                                    +---------------------+
+                                           |
+                                           v
+                                    +---------------------+
+                                    | Text Preprocessing  |
+                                    |---------------------|
+                                    | - Stopword removal  |
+                                    | - Lowercase         |
+                                    |   conversion        |
+                                    | - Text cleaning     |
+                                    +---------------------+
+                                           |
+                                           v
+                                    +---------------------+
+                                    | Output Generation   |
+                                    |---------------------|
+                                    | - Compressed text   |
+                                    |   file output       |
+                                    | - Uncompressed text |
+                                    |   file output       |
+                                    +---------------------+
+                                           |
+                                           v
+                                    +---------------------+
+                                    | Token Count         |
+                                    | Reporting           |
+                                    |---------------------|
+                                    | - Report token count|
+                                    |                     |
+                                    | - Copies text to    |
+                                    |   clipboard         |
+                                    +---------------------+
+```
+
+
 
 ## Recent Changes
 
