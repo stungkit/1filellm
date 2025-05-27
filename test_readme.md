@@ -31,8 +31,12 @@ The comprehensive test suite for OneFileLLM is consolidated in `test_all.py`, wh
 - Text preprocessing (when NLTK enabled)
 
 ### 5. **Alias System** (`TestAliasSystem`)
-- Alias detection logic
+- Alias detection logic (validates alias naming rules)
 - Alias directory management
+- Creating aliases with `--add-alias` command
+- Creating aliases from clipboard with `--alias-from-clipboard`
+- Loading and resolving aliases
+- Alias name validation (rejects invalid characters)
 
 ### 6. **Integration Tests** (`TestIntegration`)
 - GitHub repository processing
@@ -103,14 +107,14 @@ GITHUB_TOKEN=your_token python test_all.py --integration
 
 ## Test Statistics
 
-- **Total Tests**: 38
+- **Total Tests**: 42
 - **Categories**: 9
 - **Coverage Areas**:
   - Utility functions: 7 tests
   - Format detection: 2 tests
   - Stream processing: 5 tests
   - Core processing: 6 tests
-  - Alias system: 2 tests
+  - Alias system: 6 tests
   - Integration: 4 tests (skipped by default)
   - CLI: 5 tests
   - Error handling: 4 tests
@@ -148,6 +152,48 @@ class TestCoreProcessing(unittest.TestCase):
         
         # Assert
         self.assertEqual(result, expected_output)
+```
+
+## Alias System Tests
+
+The alias system tests provide comprehensive coverage of the alias functionality:
+
+### test_handle_add_alias
+Tests the `--add-alias` command functionality:
+- Creates aliases with multiple target URLs
+- Verifies alias files are created in the correct directory
+- Ensures all targets are properly saved
+
+### test_handle_alias_from_clipboard
+Tests the `--alias-from-clipboard` command:
+- Mocks clipboard content with multiple URLs (newline-separated)
+- Verifies parsing of clipboard content
+- Creates alias files from clipboard data
+- Handles mixed content (URLs and local paths)
+
+### test_load_alias
+Tests alias resolution:
+- Creates test alias files
+- Loads and returns target URLs
+- Verifies correct parsing of alias files
+
+### test_alias_validation
+Tests alias name validation rules:
+- Rejects names with invalid characters (/, \, ., :)
+- Ensures no files are created for invalid names
+- Validates error handling
+
+Example test usage:
+```python
+# Testing alias creation
+with patch('onefilellm.ALIAS_DIR', Path(temp_dir)):
+    args = ["--add-alias", "myalias", "https://github.com/repo", "https://example.com"]
+    result = handle_add_alias(args, console)
+    
+# Testing clipboard alias
+with patch('pyperclip.paste', return_value="https://url1.com\nhttps://url2.com"):
+    args = ["--alias-from-clipboard", "clipalias"]
+    result = handle_alias_from_clipboard(args, console)
 ```
 
 ## Common Test Patterns

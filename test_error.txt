@@ -1,0 +1,46 @@
+test_arxiv_integration (__main__.TestIntegration)
+Test ArXiv PDF processing ... 🔄 Running: TestIntegration.test_arxiv_integrationDownloading ArXiv PDF from https://arxiv.org/pdf/2401.14295.pdf...
+Extracting text from PDF...
+  Processing page 1/40
+  Processing page 2/40
+  Processing page 3/40
+  Processing page 4/40
+  Processing page 5/40
+  Processing page 6/40
+  Processing page 7/40
+  Processing page 8/40
+  Processing page 9/40
+  Processing page 10/40
+  Processing page 11/40
+  Processing page 12/40
+  Processing page 13/40
+  Processing page 14/40
+  Processing page 15/40
+  Processing page 16/40
+  Processing page 17/40
+  Processing page 18/40
+  Processing page 19/40
+  Processing page 20/40
+  Processing page 21/40
+  Processing page 22/40
+  Processing page 23/40
+  Processing page 24/40
+  Processing page 25/40
+  Processing page 26/40
+  Processing page 27/40
+  Processing page 28/40
+  Processing page 29/40
+  Processing page 30/40
+  Processing page 31/40
+  Processing page 32/40
+  Processing page 33/40
+  Processing page 34/40
+  Processing page 35/40
+  Processing page 36/40
+  Processing page 37/40
+  Processing page 38/40
+  Processing page 39/40
+  Processing page 40/40
+ArXiv paper processed successfully.
+FAIL
+ ✗ FAILED
