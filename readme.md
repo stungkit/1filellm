@@ -34,8 +34,9 @@ pip install -U -r requirements.txt
 
 ### GitHub Personal Access Token
 
-To access private GitHub repositories, generate a personal access token as described in the 'Obtaining a GitHub Personal Access Token' section here: https://github.com/jimmc414/onefilellm?tab=readme-ov-file#obtaining-a-github-personal-access-token
+To access private GitHub repositories, generate a personal access token as described in the 'Obtaining a GitHub Personal Access Token' section here: 
 
+[Obtaining a GitHub Personal Access Token](https://github.com/jjmc414/onefilellm?tab=readme-ov-file#obtaining-a-github-personal-access-token)
 ### Setup
 
 Clone the repository or download the source code.
