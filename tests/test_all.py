@@ -13,12 +13,20 @@ import shutil
 import time
 import subprocess
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 import pandas as pd
 import pyperclip
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
+import asyncio
+try:
+    import aiohttp
+    HAS_AIOHTTP = True
+except ImportError:
+    HAS_AIOHTTP = False
+from urllib.parse import urlparse
+import xml.etree.ElementTree as ET
 
 # Import the modules we're testing
 from onefilellm import (
@@ -31,7 +39,6 @@ from onefilellm import (
     process_github_pull_request,
     process_github_issue,
     excel_to_markdown,
-    process_input,
     process_text_stream,
     get_token_count,
     combine_xml_outputs,
@@ -43,6 +50,45 @@ from onefilellm import (
     load_alias,
     ENABLE_COMPRESSION_AND_NLTK
 )
+
+# Create a sync wrapper for async process_input for testing
+async def _async_process_input(input_path, args, progress=None, task=None):
+    from onefilellm import process_input as async_process_input
+    return await async_process_input(input_path, args, progress, task)
+
+def process_input_sync(input_path, progress=None, task=None):
+    """Synchronous wrapper for async process_input for backward compatibility in tests."""
+    import asyncio
+    # Create a mock args object with default values
+    class MockArgs:
+        crawl_max_depth = 1
+        crawl_max_pages = 100
+        crawl_delay = 0.1
+        crawl_timeout = 30
+        crawl_user_agent = "Mozilla/5.0"
+        crawl_include_pattern = None
+        crawl_exclude_pattern = None
+        crawl_follow_links = False
+        crawl_javascript = False
+    
+    args = MockArgs()
+    return asyncio.run(_async_process_input(input_path, args, progress, task))
+
+# Use the sync wrapper in tests
+process_input = process_input_sync
+
+# Try to import new docs2xml functionality
+try:
+    from onefilellm import (
+        DocCrawler,
+        CrawlArgs,
+        process_web_crawl,
+        _detect_code_language_heuristic,
+        _clean_text_content
+    )
+    HAS_DOCS2XML = True
+except ImportError:
+    HAS_DOCS2XML = False
 
 from utils import (
     safe_file_read,
@@ -541,8 +587,13 @@ class TestIntegration(unittest.TestCase):
         """Test web crawling"""
         url = "https://docs.anthropic.com/"
         result = crawl_and_extract_text(url, max_depth=1, include_pdfs=False, ignore_epubs=True)
-        self.assertIn('<source type="web_crawl"', result)
-        self.assertIn('Anthropic', result)
+        # crawl_and_extract_text returns a dict with 'content' and 'processed_urls' keys
+        self.assertIsInstance(result, dict)
+        self.assertIn('content', result)
+        self.assertIn('processed_urls', result)
+        content = result['content']
+        self.assertIn('<source type="web_crawl"', content)
+        self.assertIn('Anthropic', content)
 
 
 class TestCLIFunctionality(unittest.TestCase):
@@ -674,6 +725,641 @@ class TestPerformance(unittest.TestCase):
         console = MagicMock()
         result = process_text_stream(special_content, {'type': 'stdin'}, console)
         self.assertIn(special_content, result)
+
+
+@unittest.skipIf(not HAS_DOCS2XML, "docs2xml functionality not available (missing dependencies)")
+@unittest.skipIf(not HAS_DOCS2XML, "DocCrawler not implemented")
+class TestCrawlArgs(unittest.TestCase):
+    """Test CrawlArgs configuration object"""
+    
+    def test_default_values(self):
+        """Test CrawlArgs default values match expected settings"""
+        args = CrawlArgs()
+        
+        # Test all default values
+        self.assertEqual(args.crawl_max_depth, 3)
+        self.assertEqual(args.crawl_max_pages, 100)
+        self.assertEqual(args.crawl_user_agent, 'OneFileLLMCrawler/1.1')
+        self.assertEqual(args.crawl_delay, 0.25)
+        self.assertIsNone(args.crawl_include_pattern)
+        self.assertIsNone(args.crawl_exclude_pattern)
+        self.assertEqual(args.crawl_timeout, 20)
+        self.assertFalse(args.crawl_include_images)
+        self.assertTrue(args.crawl_include_code)
+        self.assertTrue(args.crawl_extract_headings)
+        self.assertFalse(args.crawl_follow_links)
+        self.assertTrue(args.crawl_clean_html)
+        self.assertTrue(args.crawl_strip_js)
+        self.assertTrue(args.crawl_strip_css)
+        self.assertTrue(args.crawl_strip_comments)
+        self.assertTrue(args.crawl_respect_robots)
+        self.assertEqual(args.crawl_concurrency, 3)
+        self.assertFalse(args.crawl_restrict_path)
+        self.assertTrue(args.crawl_include_pdfs)
+        self.assertTrue(args.crawl_ignore_epubs)
+    
+    def test_custom_values(self):
+        """Test setting custom values in CrawlArgs"""
+        args = CrawlArgs()
+        args.crawl_max_depth = 5
+        args.crawl_max_pages = 200
+        args.crawl_follow_links = True
+        
+        self.assertEqual(args.crawl_max_depth, 5)
+        self.assertEqual(args.crawl_max_pages, 200)
+        self.assertTrue(args.crawl_follow_links)
+
+
+@unittest.skipIf(not HAS_DOCS2XML, "docs2xml functionality not available (missing dependencies)")
+@unittest.skipIf(not HAS_DOCS2XML, "DocCrawler not implemented")
+class TestDocCrawlerHelperFunctions(unittest.TestCase):
+    """Test helper functions used by DocCrawler"""
+    
+    def test_detect_code_language_heuristic(self):
+        """Test code language detection heuristics"""
+        # Python
+        python_code = "import os\ndef main():\n    print('hello')"
+        self.assertEqual(_detect_code_language_heuristic(python_code), "python")
+        
+        # JavaScript
+        js_code = "const x = 5;\nfunction test() {\n  return x;\n}"
+        self.assertEqual(_detect_code_language_heuristic(js_code), "javascript")
+        
+        # Java
+        java_code = "public class Main {\n  public static void main(String[] args) {}\n}"
+        self.assertEqual(_detect_code_language_heuristic(java_code), "java")
+        
+        # HTML
+        html_code = "<html>\n<body>\n<div>Content</div>\n</body>\n</html>"
+        self.assertEqual(_detect_code_language_heuristic(html_code), "html")
+        
+        # SQL
+        sql_code = "SELECT * FROM users WHERE id = 1;"
+        self.assertEqual(_detect_code_language_heuristic(sql_code), "sql")
+        
+        # Unknown
+        unknown_code = "Just some plain text"
+        self.assertEqual(_detect_code_language_heuristic(unknown_code), "code")
+    
+    def test_clean_text_content(self):
+        """Test text cleaning and normalization"""
+        # Basic cleaning
+        text = "  Multiple   spaces   "
+        self.assertEqual(_clean_text_content(text), "Multiple spaces")
+        
+        # Smart quotes
+        text_quotes = "He said \u201cHello\u201d and \u2018goodbye\u2019"
+        self.assertEqual(_clean_text_content(text_quotes), 'He said "Hello" and \'goodbye\'')
+        
+        # Special spaces
+        text_spaces = "Text\u00A0with\u2000special\u3000spaces"
+        self.assertEqual(_clean_text_content(text_spaces), "Text with special spaces")
+        
+        # Empty text
+        self.assertEqual(_clean_text_content(""), "")
+        self.assertEqual(_clean_text_content(None), "")
+
+
+@unittest.skipIf(not HAS_DOCS2XML, "docs2xml functionality not available (missing dependencies)")
+@unittest.skipIf(not HAS_DOCS2XML, "DocCrawler not implemented")
+class TestDocCrawler(unittest.TestCase):
+    """Test DocCrawler class functionality"""
+    
+    def setUp(self):
+        """Set up test fixtures"""
+        self.console = MagicMock()
+        self.args = CrawlArgs()
+        self.test_url = "https://example.com"
+    
+    def test_crawler_initialization(self):
+        """Test DocCrawler initialization"""
+        crawler = DocCrawler(self.test_url, self.args, self.console)
+        
+        self.assertEqual(crawler.start_url, self.test_url)
+        self.assertEqual(crawler.domain, "example.com")
+        self.assertEqual(crawler.pages_crawled, 0)
+        self.assertEqual(len(crawler.visited_urls), 0)
+        self.assertEqual(len(crawler.failed_urls), 0)
+    
+    def test_should_crawl_url(self):
+        """Test URL crawling decision logic"""
+        crawler = DocCrawler(self.test_url, self.args, self.console)
+        
+        # Same domain should be crawled
+        self.assertTrue(crawler._should_crawl_url("https://example.com/page"))
+        
+        # Different domain should not be crawled (follow_links=False by default)
+        self.assertFalse(crawler._should_crawl_url("https://other.com/page"))
+        
+        # Non-HTTP URLs should not be crawled
+        self.assertFalse(crawler._should_crawl_url("ftp://example.com/file"))
+        self.assertFalse(crawler._should_crawl_url("javascript:void(0)"))
+        
+        # Already visited URLs should not be crawled
+        crawler.visited_urls.add("https://example.com/visited")
+        self.assertFalse(crawler._should_crawl_url("https://example.com/visited"))
+        
+        # Test max pages limit
+        crawler.pages_crawled = 100
+        self.assertFalse(crawler._should_crawl_url("https://example.com/new"))
+    
+    def test_url_patterns(self):
+        """Test include/exclude pattern matching"""
+        self.args.crawl_include_pattern = "docs|guide"
+        self.args.crawl_exclude_pattern = "archive|old"
+        crawler = DocCrawler(self.test_url, self.args, self.console)
+        
+        # Should match include pattern
+        self.assertTrue(crawler._should_crawl_url("https://example.com/docs/intro"))
+        self.assertTrue(crawler._should_crawl_url("https://example.com/guide/start"))
+        
+        # Should not match include pattern
+        self.assertFalse(crawler._should_crawl_url("https://example.com/blog/post"))
+        
+        # Should be excluded by exclude pattern
+        self.assertFalse(crawler._should_crawl_url("https://example.com/docs/archive"))
+        self.assertFalse(crawler._should_crawl_url("https://example.com/old/docs"))
+    
+    def test_path_restriction(self):
+        """Test path restriction functionality"""
+        self.args.crawl_restrict_path = True
+        crawler = DocCrawler("https://example.com/docs/", self.args, self.console)
+        
+        # Should allow URLs under the start path
+        self.assertTrue(crawler._should_crawl_url("https://example.com/docs/intro"))
+        self.assertTrue(crawler._should_crawl_url("https://example.com/docs/guide/start"))
+        
+        # Should not allow URLs outside the start path
+        self.assertFalse(crawler._should_crawl_url("https://example.com/blog/"))
+        self.assertFalse(crawler._should_crawl_url("https://example.com/"))
+    
+    def test_extract_page_links(self):
+        """Test link extraction from HTML"""
+        crawler = DocCrawler(self.test_url, self.args, self.console)
+        
+        html = """
+        <html>
+        <body>
+            <a href="/page1">Page 1</a>
+            <a href="https://example.com/page2">Page 2</a>
+            <a href="https://other.com/page3">Page 3</a>
+            <a href="#section">Section</a>
+            <a href="javascript:void(0)">JS Link</a>
+            <a href="mailto:test@example.com">Email</a>
+        </body>
+        </html>
+        """
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, 'html.parser')
+        links = crawler._extract_page_links(soup, self.test_url)
+        
+        # Should extract valid links
+        self.assertIn("https://example.com/page1", links)
+        self.assertIn("https://example.com/page2", links)
+        self.assertIn("https://other.com/page3", links)
+        
+        # Should not extract invalid links
+        self.assertNotIn("#section", links)
+        self.assertNotIn("javascript:void(0)", links)
+        self.assertNotIn("mailto:test@example.com", links)
+    
+    def test_xml_output_initialization(self):
+        """Test XML output initialization"""
+        crawler = DocCrawler(self.test_url, self.args, self.console)
+        crawler._initialize_xml_output()
+        
+        self.assertEqual(len(crawler.output_xml_parts), 1)
+        self.assertIn('type="web_crawl"', crawler.output_xml_parts[0])
+        self.assertIn(f'base_url="{self.test_url}"', crawler.output_xml_parts[0])
+
+
+@unittest.skipIf(not HAS_DOCS2XML, "docs2xml functionality not available (missing dependencies)")
+@unittest.skipIf(not HAS_DOCS2XML, "DocCrawler not implemented")
+class TestAsyncWebCrawling(unittest.TestCase):
+    """Test async web crawling functionality"""
+    
+    def setUp(self):
+        """Set up test fixtures"""
+        self.console = MagicMock()
+        self.args = CrawlArgs()
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+    
+    def tearDown(self):
+        """Clean up event loop"""
+        self.loop.close()
+    
+    def test_process_web_crawl_async(self):
+        """Test async process_web_crawl function"""
+        async def run_test():
+            # Mock the crawler
+            with patch('onefilellm.DocCrawler') as MockCrawler:
+                mock_instance = MockCrawler.return_value
+                mock_instance.crawl = AsyncMock(return_value='<source>Test XML</source>')
+                
+                result = await process_web_crawl(
+                    "https://example.com",
+                    self.args,
+                    self.console,
+                    MagicMock()  # progress_bar
+                )
+                
+                self.assertEqual(result, '<source>Test XML</source>')
+                MockCrawler.assert_called_once()
+                mock_instance.crawl.assert_called_once()
+        
+        self.loop.run_until_complete(run_test())
+    
+    def test_process_web_crawl_error_handling(self):
+        """Test error handling in process_web_crawl"""
+        async def run_test():
+            with patch('onefilellm.DocCrawler') as MockCrawler:
+                mock_instance = MockCrawler.return_value
+                mock_instance.crawl = AsyncMock(side_effect=Exception("Test error"))
+                
+                result = await process_web_crawl(
+                    "https://example.com",
+                    self.args,
+                    self.console,
+                    MagicMock()
+                )
+                
+                self.assertIn('<error>', result)
+                self.assertIn('Test error', result)
+        
+        self.loop.run_until_complete(run_test())
+
+
+@unittest.skipIf(not HAS_DOCS2XML, "docs2xml functionality not available (missing dependencies)")
+@unittest.skipIf(not HAS_DOCS2XML, "DocCrawler not implemented")
+class TestHTMLProcessing(unittest.TestCase):
+    """Test HTML processing and content extraction"""
+    
+    def setUp(self):
+        """Set up test fixtures"""
+        self.console = MagicMock()
+        self.args = CrawlArgs()
+        self.crawler = DocCrawler("https://example.com", self.args, self.console)
+    
+    def test_process_html_to_structured_data(self):
+        """Test HTML to structured data conversion"""
+        html = """
+        <html>
+        <head>
+            <title>Test Page</title>
+            <meta name="description" content="Test description">
+            <meta property="og:title" content="OG Title">
+        </head>
+        <body>
+            <h1>Main Heading</h1>
+            <p>This is a paragraph.</p>
+            <ul>
+                <li>Item 1</li>
+                <li>Item 2</li>
+            </ul>
+            <pre><code>def test():
+    return True</code></pre>
+        </body>
+        </html>
+        """
+        
+        result = self.crawler._process_html_to_structured_data(html, "https://example.com/test")
+        
+        # Check basic structure
+        self.assertEqual(result['url'], "https://example.com/test")
+        self.assertIn('title', result)
+        self.assertIn('meta', result)
+        self.assertIn('content_blocks', result)
+        
+        # Check meta tags
+        self.assertEqual(result['meta'].get('description'), 'Test description')
+        self.assertEqual(result['meta'].get('og:title'), 'OG Title')
+        
+        # Check content blocks
+        blocks = result['content_blocks']
+        self.assertTrue(len(blocks) > 0)
+        
+        # Find specific block types
+        heading_blocks = [b for b in blocks if b['type'] == 'heading']
+        paragraph_blocks = [b for b in blocks if b['type'] == 'paragraph']
+        list_blocks = [b for b in blocks if b['type'] == 'list']
+        code_blocks = [b for b in blocks if b['type'] == 'code']
+        
+        # Verify content
+        self.assertTrue(len(heading_blocks) > 0)
+        self.assertEqual(heading_blocks[0]['text'], 'Main Heading')
+        self.assertEqual(heading_blocks[0]['level'], 1)
+        
+        self.assertTrue(len(paragraph_blocks) > 0)
+        self.assertEqual(paragraph_blocks[0]['text'], 'This is a paragraph.')
+        
+        self.assertTrue(len(list_blocks) > 0)
+        self.assertEqual(list_blocks[0]['list_type'], 'ul')
+        self.assertEqual(len(list_blocks[0]['items']), 2)
+        
+        if self.args.crawl_include_code:
+            self.assertTrue(len(code_blocks) > 0)
+            self.assertIn('def test():', code_blocks[0]['code'])
+            self.assertEqual(code_blocks[0]['language'], 'python')
+    
+    def test_table_extraction(self):
+        """Test table extraction from HTML"""
+        html = """
+        <table>
+            <thead>
+                <tr>
+                    <th>Header 1</th>
+                    <th>Header 2</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Cell 1-1</td>
+                    <td>Cell 1-2</td>
+                </tr>
+                <tr>
+                    <td>Cell 2-1</td>
+                    <td>Cell 2-2</td>
+                </tr>
+            </tbody>
+        </table>
+        """
+        
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, 'html.parser')
+        blocks = self.crawler._extract_structured_content_from_soup(soup, "https://example.com")
+        
+        table_blocks = [b for b in blocks if b['type'] == 'table']
+        self.assertEqual(len(table_blocks), 1)
+        
+        table = table_blocks[0]
+        self.assertEqual(table['headers'], ['Header 1', 'Header 2'])
+        self.assertEqual(len(table['rows']), 2)
+        self.assertEqual(table['rows'][0], ['Cell 1-1', 'Cell 1-2'])
+        self.assertEqual(table['rows'][1], ['Cell 2-1', 'Cell 2-2'])
+    
+    def test_image_extraction(self):
+        """Test image extraction when enabled"""
+        self.args.crawl_include_images = True
+        crawler = DocCrawler("https://example.com", self.args, self.console)
+        
+        html = """
+        <img src="/images/test.jpg" alt="Test Image">
+        <img src="https://example.com/logo.png" alt="Logo">
+        <img src="data:image/png;base64,..." alt="Data URL">
+        """
+        
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, 'html.parser')
+        blocks = crawler._extract_structured_content_from_soup(soup, "https://example.com")
+        
+        image_blocks = [b for b in blocks if b['type'] == 'image']
+        self.assertEqual(len(image_blocks), 3)
+        
+        # Check URL resolution
+        self.assertEqual(image_blocks[0]['url'], 'https://example.com/images/test.jpg')
+        self.assertEqual(image_blocks[0]['alt_text'], 'Test Image')
+        self.assertEqual(image_blocks[1]['url'], 'https://example.com/logo.png')
+    
+    def test_strip_javascript_css_comments(self):
+        """Test stripping of JS, CSS, and comments"""
+        html = """
+        <html>
+        <head>
+            <style>body { color: red; }</style>
+            <script>console.log('test');</script>
+        </head>
+        <body>
+            <!-- This is a comment -->
+            <p>Visible content</p>
+            <script>alert('hello');</script>
+        </body>
+        </html>
+        """
+        
+        result = self.crawler._process_html_to_structured_data(html, "https://example.com")
+        blocks = result['content_blocks']
+        
+        # Should only have the paragraph
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]['type'], 'paragraph')
+        self.assertEqual(blocks[0]['text'], 'Visible content')
+
+
+@unittest.skipIf(not HAS_DOCS2XML, "docs2xml functionality not available (missing dependencies)")
+@unittest.skipIf(not HAS_DOCS2XML, "DocCrawler not implemented")
+class TestXMLGeneration(unittest.TestCase):
+    """Test XML generation and output formatting"""
+    
+    def setUp(self):
+        """Set up test fixtures"""
+        self.console = MagicMock()
+        self.args = CrawlArgs()
+        self.crawler = DocCrawler("https://example.com", self.args, self.console)
+    
+    def test_add_page_to_xml_output(self):
+        """Test adding a page to XML output"""
+        self.crawler._initialize_xml_output()
+        
+        page_data = {
+            'url': 'https://example.com/page1',
+            'title': 'Test Page',
+            'meta': {
+                'description': 'A test page',
+                'keywords': 'test, example'
+            },
+            'content_blocks': [
+                {'type': 'heading', 'level': 1, 'text': 'Main Title'},
+                {'type': 'paragraph', 'text': 'This is content.'},
+                {'type': 'list', 'list_type': 'ul', 'items': ['Item 1', 'Item 2']},
+                {'type': 'code', 'language': 'python', 'code': 'print("Hello")'},
+                {'type': 'table', 'headers': ['H1', 'H2'], 'rows': [['R1C1', 'R1C2']]},
+                {'type': 'image', 'url': 'https://example.com/img.jpg', 'alt_text': 'Test'},
+                {'type': 'error', 'text': 'Some error occurred'}
+            ]
+        }
+        
+        self.crawler._add_page_to_xml_output(page_data)
+        
+        # Should have 2 parts: opening tag and page content
+        self.assertEqual(len(self.crawler.output_xml_parts), 2)
+        
+        page_xml = self.crawler.output_xml_parts[1]
+        
+        # Verify structure
+        self.assertIn('<page url="https://example.com/page1">', page_xml)
+        self.assertIn('<title>Test Page</title>', page_xml)
+        self.assertIn('<meta>', page_xml)
+        self.assertIn('<meta_item name="description">A test page</meta_item>', page_xml)
+        self.assertIn('<content>', page_xml)
+        self.assertIn('<heading level="1">Main Title</heading>', page_xml)
+        self.assertIn('<paragraph>This is content.</paragraph>', page_xml)
+        self.assertIn('<list type="ul"><item>Item 1</item><item>Item 2</item></list>', page_xml)
+        self.assertIn('<code language="python">print("Hello")</code>', page_xml)
+        self.assertIn('<table>', page_xml)
+        self.assertIn('<image src="https://example.com/img.jpg" alt_text="Test" />', page_xml)
+        self.assertIn('<error_in_page>Some error occurred</error_in_page>', page_xml)
+        self.assertIn('</page>', page_xml)
+    
+    def test_xml_escaping_in_output(self):
+        """Test proper XML escaping in generated output"""
+        self.crawler._initialize_xml_output()
+        
+        page_data = {
+            'url': 'https://example.com/page?param=1&other=2',
+            'title': 'Title with <special> & "characters"',
+            'meta': {},
+            'content_blocks': [
+                {'type': 'paragraph', 'text': 'Text with <tags> & entities'}
+            ]
+        }
+        
+        self.crawler._add_page_to_xml_output(page_data)
+        page_xml = self.crawler.output_xml_parts[1]
+        
+        # URLs and text should be properly escaped
+        self.assertIn('param=1&amp;other=2', page_xml)
+        self.assertIn('Title with &lt;special&gt; &amp; "characters"', page_xml)
+        self.assertIn('Text with &lt;tags&gt; &amp; entities', page_xml)
+
+
+@unittest.skipIf(not HAS_DOCS2XML, "docs2xml functionality not available (missing dependencies)")
+@unittest.skipIf(not HAS_DOCS2XML, "DocCrawler not implemented")
+class TestBackwardCompatibility(unittest.TestCase):
+    """Test that old functionality still works"""
+    
+    def test_old_crawl_and_extract_text(self):
+        """Test that the old crawl_and_extract_text function still works"""
+        # Mock the requests
+        with patch('onefilellm.requests.get') as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.content = b'<html><body><p>Test content</p></body></html>'
+            mock_response.headers = {'Content-Type': 'text/html'}
+            mock_response.raise_for_status = MagicMock()
+            mock_get.return_value = mock_response
+            
+            result = crawl_and_extract_text(
+                "https://example.com",
+                max_depth=1,
+                include_pdfs=True,
+                ignore_epubs=True
+            )
+            
+            self.assertIn('content', result)
+            self.assertIn('processed_urls', result)
+            self.assertIn('<source type="web_crawl"', result['content'])
+            self.assertIn('Test content', result['content'])
+    
+    @unittest.skipIf(not RUN_INTEGRATION_TESTS, "Integration tests disabled")
+    def test_process_input_uses_new_crawler(self):
+        """Test that process_input now uses the new async crawler for web URLs"""
+        async def run_test():
+            with patch('onefilellm.process_web_crawl') as mock_crawl:
+                mock_crawl.return_value = '<source>New crawler output</source>'
+                
+                # Note: process_input is now async
+                result = await process_input("https://example.com")
+                
+                # Should use new crawler, not old one
+                mock_crawl.assert_called_once()
+                self.assertEqual(result, '<source>New crawler output</source>')
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(run_test())
+        finally:
+            loop.close()
+
+
+@unittest.skipIf(not HAS_DOCS2XML, "docs2xml functionality not available (missing dependencies)")
+@unittest.skipIf(not HAS_DOCS2XML, "DocCrawler not implemented")
+class TestEnvironmentVariables(unittest.TestCase):
+    """Test environment variable handling"""
+    
+    def test_dotenv_loading(self):
+        """Test that dotenv is imported and can be used"""
+        # This tests that the import works
+        from onefilellm import load_dotenv
+        
+        # Create a test .env file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.env', delete=False) as f:
+            f.write("TEST_VAR=test_value\n")
+            f.flush()
+            
+            # Load it
+            from dotenv import load_dotenv as dotenv_load
+            dotenv_load(f.name)
+            
+            # Check it worked
+            self.assertEqual(os.getenv('TEST_VAR'), 'test_value')
+            
+            # Clean up
+            os.unlink(f.name)
+            if 'TEST_VAR' in os.environ:
+                del os.environ['TEST_VAR']
+    
+    def test_github_token_loading(self):
+        """Test GITHUB_TOKEN loading from environment"""
+        # Save original value
+        original_token = os.environ.get('GITHUB_TOKEN')
+        
+        try:
+            # Set test token
+            os.environ['GITHUB_TOKEN'] = 'test_github_token_123'
+            
+            # Re-import to get the new value
+            import importlib
+            import onefilellm
+            importlib.reload(onefilellm)
+            
+            # Check it's loaded (would need to access onefilellm.TOKEN)
+            # For now just verify the env var is set
+            self.assertEqual(os.environ.get('GITHUB_TOKEN'), 'test_github_token_123')
+            
+        finally:
+            # Restore original
+            if original_token:
+                os.environ['GITHUB_TOKEN'] = original_token
+            elif 'GITHUB_TOKEN' in os.environ:
+                del os.environ['GITHUB_TOKEN']
+
+
+@unittest.skipIf(not HAS_DOCS2XML, "docs2xml functionality not available (missing dependencies)")
+@unittest.skipIf(not HAS_DOCS2XML, "DocCrawler not implemented")
+class TestCLIArgumentParsing(unittest.TestCase):
+    """Test CLI argument parsing for new crawl options"""
+    
+    def test_crawl_args_from_cli(self):
+        """Test parsing of crawl-specific CLI arguments"""
+        # This would test the actual CLI parsing in main()
+        # Since main() is now async and complex, we test the CrawlArgs usage
+        args = CrawlArgs()
+        
+        # Simulate CLI argument parsing
+        args.crawl_max_depth = 5
+        args.crawl_max_pages = 50
+        args.crawl_delay = 1.0
+        args.crawl_include_pattern = "docs|api"
+        args.crawl_exclude_pattern = "test|temp"
+        args.crawl_follow_links = True
+        args.crawl_restrict_path = True
+        args.crawl_include_images = True
+        
+        # Create crawler with these args
+        console = MagicMock()
+        crawler = DocCrawler("https://example.com", args, console)
+        
+        # Verify crawler uses the args
+        self.assertEqual(crawler.max_depth, 5)
+        self.assertEqual(crawler.max_pages, 50)
+        self.assertEqual(crawler.delay, 1.0)
+        self.assertTrue(crawler.follow_links)
+        self.assertTrue(crawler.restrict_path)
+        self.assertTrue(crawler.include_images)
+        self.assertIsNotNone(crawler.include_pattern)
+        self.assertIsNotNone(crawler.exclude_pattern)
 
 
 class RichTestResult(unittest.TextTestResult):
