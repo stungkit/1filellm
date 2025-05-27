@@ -32,14 +32,6 @@ Install the required dependencies:
 pip install -U -r requirements.txt
 ```
 
-Optionally, create a virtual environment for isolation:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -U -r requirements.txt
-```
-
 ### GitHub Personal Access Token
 
 To access private GitHub repositories, generate a personal access token as described in the 'Obtaining a GitHub Personal Access Token' section.
