@@ -1,11 +1,3 @@
-# Optional imports for environment variables
-try:
-    from dotenv import load_dotenv
-    HAS_DOTENV = True
-except ImportError:
-    HAS_DOTENV = False
-
-import argparse
 import requests
 from bs4 import BeautifulSoup, Comment
 from urllib.parse import urljoin, urlparse
@@ -32,23 +24,7 @@ from rich.prompt import Prompt
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 import xml.etree.ElementTree as ET # Keep for preprocess_text if needed
 import pandas as pd
-from typing import Union, List, Dict, Optional, Set, Tuple
-import asyncio
-import time
-from urllib.robotparser import RobotFileParser
-
-# Optional imports for advanced web crawling
-try:
-    import aiohttp
-    HAS_AIOHTTP = True
-except ImportError:
-    HAS_AIOHTTP = False
-    
-try:
-    from readability import Document
-    HAS_READABILITY = True
-except ImportError:
-    HAS_READABILITY = False
+from typing import Union, List, Dict
 
 # Import utility functions
 from utils import (
@@ -193,10 +169,6 @@ if ENABLE_COMPRESSION_AND_NLTK:
         stop_words = set(stopwords.words("english"))
     except Exception as e:
         print(f"[bold yellow]Warning:[/bold yellow] Failed to download or load NLTK stopwords. Compression will proceed without stopword removal. Error: {e}")
-
-# Load environment variables from .env file if present
-if HAS_DOTENV:
-    load_dotenv()
 
 TOKEN = os.getenv('GITHUB_TOKEN', 'default_token_here')
 if TOKEN == 'default_token_here':
@@ -1439,7 +1411,7 @@ def combine_xml_outputs(outputs):
     
     return '\n'.join(combined)
 
-async def process_input(input_path, args, progress=None, task=None):
+def process_input(input_path, progress=None, task=None):
     """
     Process a single input path and return the XML output.
     Extracted from main() for reuse with multiple inputs.
@@ -1467,9 +1439,13 @@ async def process_input(input_path, args, progress=None, task=None):
             elif "arxiv.org/abs/" in input_path:
                 result = process_arxiv_pdf(input_path)
             elif input_path.lower().endswith(('.pdf')): # Direct PDF link
-                # Direct PDF URLs are now handled by the crawler
-                console.print("[bold yellow]Direct PDF URL detected - processing with web crawler.[/bold yellow]")
-                result = await process_web_crawl(input_path, args, console, progress)
+                # Simplified: wrap direct PDF processing if needed, or treat as web crawl
+                print("[bold yellow]Direct PDF URL detected - treating as single-page crawl.[/bold yellow]")
+                crawl_result = crawl_and_extract_text(input_path, max_depth=0, include_pdfs=True, ignore_epubs=True)
+                result = crawl_result['content']
+                if crawl_result['processed_urls']:
+                    with open(urls_list_file, 'w', encoding='utf-8') as urls_file:
+                        urls_file.write('\n'.join(crawl_result['processed_urls']))
             elif input_path.lower().endswith(('.xls', '.xlsx')): # Direct Excel file link
                 console.print(f"Processing Excel file from URL: {input_path}")
                 try:
@@ -1505,9 +1481,11 @@ async def process_input(input_path, args, progress=None, task=None):
                          f'</file>\n'
                          f'</source>')
             else: # Assume general web URL for crawling
-                result = await process_web_crawl(input_path, args, console, progress)
-                # Note: The new crawler handles URL tracking internally
-                # If needed, we can extract URLs from the result XML
+                crawl_result = crawl_and_extract_text(input_path, max_depth=1, include_pdfs=True, ignore_epubs=True) # Default max_depth=1
+                result = crawl_result['content']
+                if crawl_result['processed_urls']:
+                    with open(urls_list_file, 'w', encoding='utf-8') as urls_file:
+                        urls_file.write('\n'.join(crawl_result['processed_urls']))
         # Basic check for DOI (starts with 10.) or PMID (all digits)
         elif (input_path.startswith("10.") and "/" in input_path) or input_path.isdigit():
             result = process_doi_or_pmid(input_path)
@@ -1567,431 +1545,7 @@ async def process_input(input_path, args, progress=None, task=None):
         # Return an error-wrapped source instead of raising
         return f'<source type="error" path="{escape_xml(input_path)}">\n<e>Failed to process: {escape_xml(str(e))}</e>\n</source>'
 
-# Helper functions for DocCrawler
-def _detect_code_language_heuristic(code: str) -> str:
-    """Attempt to detect programming language of code block with naive heuristics."""
-    if re.search(r'^\s*(import|from)\s+\w+\s+import|def\s+\w+\s*\(|class\s+\w+[:\(]', code):
-        return "python"
-    elif re.search(r'^\s*(function|const|let|var|import)\s+|=>|{\s*\n|export\s+', code):
-        return "javascript"
-    elif re.search(r'^\s*(#include|int\s+main|using\s+namespace)', code):
-        return "cpp"
-    elif re.search(r'^\s*(public\s+class|import\s+java|@Override)', code):
-        return "java"
-    elif re.search(r'<\?php|\$\w+\s*=', code):
-        return "php"
-    elif re.search(r'^\s*(use\s+|fn\s+\w+|let\s+mut|impl)', code):
-        return "rust"
-    elif re.search(r'^\s*(package\s+main|import\s+\(|func\s+\w+\s*\()', code):
-        return "go"
-    elif re.search(r'<html|<body|<div|<script|<style', code):
-        return "html"
-    elif re.search(r'^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE TABLE)', code, re.IGNORECASE):
-        return "sql"
-    return "code"
-
-def _clean_text_content(text: str) -> str:
-    """Clean and normalize text content."""
-    if not text:
-        return ""
-    text = re.sub(r'\s+', ' ', text).strip()
-    text = re.sub(r'[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]', ' ', text)
-    text = re.sub(r'[\u2018\u2019]', "'", text)
-    text = re.sub(r'[\u201C\u201D]', '"', text)
-    return text
-
-# CrawlArgs class for DocCrawler configuration
-class CrawlArgs:
-    """Arguments for web crawling configuration."""
-    def __init__(self, start_url: str, max_depth: int = 2, max_pages: int = 50):
-        self.start_url = start_url
-        self.max_depth = max_depth
-        self.max_pages = max_pages
-        self.user_agent = "OneFileLLM/1.0"
-        self.delay = 0.2
-        self.include_pattern = None
-        self.exclude_pattern = None
-        self.timeout = 30
-        self.verbose = False
-        self.include_images = False
-        self.include_code = True
-        self.extract_headings = True
-        self.follow_links = False
-        self.clean_html = True
-        self.strip_js = True
-        self.strip_css = True
-        self.strip_comments = True
-        self.respect_robots = False
-        self.concurrency = 5
-        self.restrict_path = True
-
-# DocCrawler implementation
-if HAS_AIOHTTP and HAS_READABILITY:
-    class DocCrawler:
-        """Main crawler class to handle website documentation crawling and XML conversion."""
-        
-        def __init__(self, args: CrawlArgs):
-            """Initialize the crawler with command line arguments."""
-            self.start_url = args.start_url
-            self.max_depth = args.max_depth
-            self.max_pages = args.max_pages
-            self.user_agent = args.user_agent
-            self.delay = args.delay
-            self.include_pattern = re.compile(args.include_pattern) if args.include_pattern else None
-            self.exclude_pattern = re.compile(args.exclude_pattern) if args.exclude_pattern else None
-            self.timeout = args.timeout
-            self.verbose = args.verbose
-            self.include_images = args.include_images
-            self.include_code = args.include_code
-            self.extract_headings = args.extract_headings
-            self.follow_links = args.follow_links
-            self.clean_html = args.clean_html
-            self.strip_js = args.strip_js
-            self.strip_css = args.strip_css
-            self.strip_comments = args.strip_comments
-            self.respect_robots = args.respect_robots
-            self.concurrency = args.concurrency
-            self.restrict_path = args.restrict_path
-            
-            # State
-            self.visited_urls: Set[str] = set()
-            self.pages_crawled = 0
-            self.failed_urls: List[Tuple[str, str]] = []
-            self.domain = urlparse(self.start_url).netloc
-            
-            parsed_start = urlparse(self.start_url)
-            self.start_url_domain = parsed_start.netloc
-            self.start_url_path = parsed_start.path or "/"
-            
-            self.session = None
-            self.pages_content = []  # Store crawled pages content
-            
-        async def init_session(self):
-            """Initialize aiohttp session."""
-            headers = {
-                "User-Agent": self.user_agent,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5",
-                "Connection": "keep-alive",
-            }
-            self.session = aiohttp.ClientSession(headers=headers)
-            
-        async def close_session(self):
-            """Close aiohttp session."""
-            if self.session:
-                await self.session.close()
-                
-        def should_crawl(self, url: str) -> bool:
-            """Determine if URL should be crawled based on patterns, domain, path, etc."""
-            parsed_url = urlparse(url)
-            
-            # Only handle http/https
-            if parsed_url.scheme not in ('http', 'https'):
-                return False
-                
-            # If we don't follow external links, only crawl the same domain
-            if not self.follow_links and parsed_url.netloc != self.domain:
-                return False
-    
-            # If --restrict-path is set, require the path to start with start_url_path
-            if self.restrict_path:
-                if not parsed_url.path.startswith(self.start_url_path):
-                    return False
-    
-            # Skip if we've already visited
-            if url in self.visited_urls:
-                return False
-                
-            # Skip if we've hit max pages
-            if self.pages_crawled >= self.max_pages:
-                return False
-                
-            # If include_pattern is set, skip URLs that do not match it
-            if self.include_pattern and not self.include_pattern.search(url):
-                return False
-                
-            # If exclude_pattern is set, skip URLs that do match it
-            if self.exclude_pattern and self.exclude_pattern.search(url):
-                return False
-                
-            return True
-            
-        async def fetch_url(self, url: str) -> Tuple[Optional[str], Optional[str]]:
-            """Fetch URL content with error handling."""
-            if not self.session:
-                await self.init_session()
-                
-            try:
-                async with self.session.get(url, timeout=self.timeout) as response:
-                    if response.status != 200:
-                        error_msg = f"HTTP Error {response.status}: {response.reason}"
-                        return None, error_msg
-                        
-                    # Check content type
-                    content_type = response.headers.get('Content-Type', '')
-                    if not content_type.startswith('text/html'):
-                        error_msg = f"Skipping non-HTML content: {content_type}"
-                        return None, error_msg
-                        
-                    html = await response.text()
-                    return html, None
-                    
-            except asyncio.TimeoutError:
-                return None, "Request timed out"
-            except aiohttp.ClientError as e:
-                return None, f"Client error: {str(e)}"
-            except Exception as e:
-                return None, f"Unexpected error: {str(e)}"
-        
-        def extract_links(self, soup: BeautifulSoup, base_url: str) -> List[str]:
-            """Extract links from HTML content."""
-            links = []
-            
-            for link in soup.find_all('a', href=True):
-                href = link['href'].strip()
-                # Skip anchors, js calls, etc.
-                if not href or href.startswith('#') or href.startswith('javascript:'):
-                    continue
-                    
-                full_url = urljoin(base_url, href)
-                full_url = full_url.split('#')[0]  # Remove fragments
-                
-                links.append(full_url)
-                
-            return links
-            
-        def process_html(self, html: str, url: str) -> Dict:
-            """Process HTML content and extract structured information."""
-            try:
-                from readability import Document
-                doc = Document(html)
-                title = doc.title()
-                
-                if self.clean_html:
-                    main_content = doc.summary()
-                    soup = BeautifulSoup(main_content, 'html.parser')
-                else:
-                    soup = BeautifulSoup(html, 'html.parser')
-                    
-                if self.strip_js:
-                    for script in soup.find_all('script'):
-                        script.decompose()
-                if self.strip_css:
-                    for style in soup.find_all('style'):
-                        style.decompose()
-                if self.strip_comments:
-                    from bs4 import Comment
-                    for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
-                        comment.extract()
-                        
-                # Extract text content
-                text_content = soup.get_text()
-                cleaned_text = _clean_text_content(text_content)
-                
-                return {
-                    'url': url,
-                    'title': title,
-                    'content': cleaned_text,
-                    'links': self.extract_links(soup, url) if self.max_depth > 0 else []
-                }
-                
-            except Exception as e:
-                logger.error(f"Error processing HTML for {url}: {e}")
-                return {
-                    'url': url,
-                    'title': "Error processing page",
-                    'content': f"Failed to process: {str(e)}",
-                    'links': []
-                }
-                
-        async def worker(self, queue: "asyncio.Queue[Tuple[str,int]]"):
-            """Async worker that crawls pages from the queue."""
-            while True:
-                try:
-                    url, depth = await queue.get()
-                    
-                    if self.pages_crawled >= self.max_pages:
-                        queue.task_done()
-                        continue
-                    
-                    if not self.should_crawl(url):
-                        queue.task_done()
-                        continue
-    
-                    self.visited_urls.add(url)
-                    await asyncio.sleep(self.delay)
-                    
-                    html, error = await self.fetch_url(url)
-                    if error:
-                        self.failed_urls.append((url, error))
-                        queue.task_done()
-                        continue
-    
-                    page_data = self.process_html(html, url)
-                    self.pages_content.append(page_data)
-    
-                    self.pages_crawled += 1
-                    
-                    if depth < self.max_depth:
-                        for link in page_data.get('links', []):
-                            if self.pages_crawled < self.max_pages:
-                                await queue.put((link, depth + 1))
-    
-                    queue.task_done()
-                
-                except asyncio.CancelledError:
-                    break
-                except Exception as e:
-                    logger.error(f"Worker error: {e}")
-                    queue.task_done()
-    
-        async def crawl(self) -> str:
-            """Main crawl function with concurrency. Returns XML string."""
-            try:
-                await self.init_session()
-                
-                queue: asyncio.Queue[Tuple[str, int]] = asyncio.Queue()
-                await queue.put((self.start_url, 0))
-                
-                tasks = []
-                for _ in range(self.concurrency):
-                    t = asyncio.create_task(self.worker(queue))
-                    tasks.append(t)
-                
-                await queue.join()
-                
-                for t in tasks:
-                    t.cancel()
-                
-                # Convert pages_content to XML format
-                xml_output = self._create_xml_output()
-                return xml_output
-                
-            except Exception as e:
-                logger.error(f"Crawl error: {e}")
-                return f'<source type="error" path="{escape_xml(self.start_url)}">\n<e>Crawl failed: {escape_xml(str(e))}</e>\n</source>'
-            finally:
-                await self.close_session()
-                
-        def _create_xml_output(self) -> str:
-            """Create XML output from crawled pages."""
-            xml_parts = []
-            xml_parts.append(f'<source type="web_crawl" start_url="{escape_xml(self.start_url)}" pages_crawled="{self.pages_crawled}">')
-            
-            for page in self.pages_content:
-                xml_parts.append(f'  <page url="{escape_xml(page["url"])}">')
-                xml_parts.append(f'    <title>{escape_xml(page["title"])}</title>')
-                xml_parts.append(f'    <content>{escape_xml(page["content"])}</content>')
-                xml_parts.append('  </page>')
-                
-            xml_parts.append('</source>')
-            return '\n'.join(xml_parts)
-    
-    async def process_web_crawl(base_url: str, cli_args: object, console: Console, progress_bar) -> str:
-        """Process a website by crawling it and returning XML content."""
-        console.print(f"\n[bold green]Initiating web crawl for:[/bold green] [bright_yellow]{base_url}[/bright_yellow]")
-        
-        # The DocCrawler class (ported from docs2xml.py) should be defined in the same file or imported
-        crawler = DocCrawler(start_url=base_url, cli_args=cli_args, console_obj=console)
-        
-        try:
-            xml_string_output = await crawler.crawl(rich_progress_bar=progress_bar)
-            return xml_string_output
-        except Exception as e:
-            console.print(f"[bold red]Error during web crawl for {base_url}: {e}[/bold red]")
-            import traceback
-            console.print(f"[dim]{traceback.format_exc()}[/dim]")
-            return f'<source type="web_crawl" base_url="{escape_xml(base_url)}"><error>Crawl failed: {escape_xml(str(e))}</error></source>'
-
-else:
-    # Stub implementation when dependencies are not available
-    async def process_web_crawl(base_url: str, cli_args: object, console: Console, progress_bar) -> str:
-        """Stub implementation when aiohttp/readability are not available."""
-        return f'<source type="error" path="{escape_xml(base_url)}">\n<e>Web crawling requires aiohttp and readability-lxml packages. Install with: pip install aiohttp readability-lxml</e>\n</source>'
-
-def setup_argparse():
-    """Set up command-line argument parser."""
-    parser = argparse.ArgumentParser(
-        description='onefilellm - Content Aggregation Tool',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        add_help=False  # We'll handle help manually for backward compatibility
-    )
-    
-    # Positional arguments for paths/URLs
-    parser.add_argument('inputs', nargs='*', help='Paths, URLs, or aliases to process')
-    
-    # Standard Input Options
-    input_group = parser.add_argument_group('Standard Input Options')
-    input_group.add_argument('-', dest='stdin', action='store_true', 
-                            help='Read text from standard input (stdin)')
-    input_group.add_argument('-c', '--clipboard', action='store_true',
-                            help='Read text from the system clipboard')
-    input_group.add_argument('-f', '--format', type=str, metavar='TYPE',
-                            choices=['text', 'markdown', 'json', 'html', 'yaml', 'doculing', 'markitdown'],
-                            help='Force processing the input stream as TYPE')
-    
-    # Alias Management
-    alias_group = parser.add_argument_group('Alias Management')
-    alias_group.add_argument('--add-alias', nargs=2, metavar=('NAME', 'URL'),
-                            help='Create or update an alias NAME for the URL/path')
-    alias_group.add_argument('--alias-from-clipboard', metavar='NAME',
-                            help='Create an alias from clipboard contents')
-    
-    # Web Crawler Options
-    crawler_group = parser.add_argument_group('Web Crawler Options')
-    crawler_group.add_argument('--crawl-max-depth', type=int, default=1, metavar='N',
-                              help='Maximum crawl depth (default: 1)')
-    crawler_group.add_argument('--crawl-max-pages', type=int, default=100, metavar='N',
-                              help='Maximum pages to crawl (default: 100)')
-    crawler_group.add_argument('--crawl-delay', type=float, default=0.1, metavar='SECONDS',
-                              help='Delay between requests in seconds (default: 0.1)')
-    crawler_group.add_argument('--crawl-timeout', type=int, default=30, metavar='SECONDS',
-                              help='Request timeout in seconds (default: 30)')
-    crawler_group.add_argument('--crawl-user-agent', type=str, 
-                              default='OneFileLLM/1.0',
-                              help='User agent string (default: OneFileLLM/1.0)')
-    crawler_group.add_argument('--crawl-include-pattern', type=str, metavar='REGEX',
-                              help='Regex for URLs to include')
-    crawler_group.add_argument('--crawl-exclude-pattern', type=str, metavar='REGEX',
-                              help='Regex for URLs to exclude')
-    crawler_group.add_argument('--crawl-follow-links', action='store_true',
-                              help='Follow links to external domains (default: False)')
-    crawler_group.add_argument('--crawl-javascript', action='store_true',
-                              help='Enable JavaScript rendering (requires playwright, default: False)')
-    
-    # Additional crawler boolean options
-    crawler_group.add_argument('--crawl-include-images', action='store_true',
-                              help='Include image tags in output')
-    crawler_group.add_argument('--crawl-include-code', action='store_true', default=True,
-                              help='Include code blocks in output (default: True)')
-    crawler_group.add_argument('--crawl-extract-headings', action='store_true', default=True,
-                              help='Extract heading structure (default: True)')
-    crawler_group.add_argument('--crawl-clean-html', action='store_true', default=True,
-                              help='Use readability-lxml for main content (default: True)')
-    crawler_group.add_argument('--crawl-strip-js', action='store_true', default=True,
-                              help='Strip JavaScript from HTML (default: True)')
-    crawler_group.add_argument('--crawl-strip-css', action='store_true', default=True,
-                              help='Strip CSS from HTML (default: True)')
-    crawler_group.add_argument('--crawl-strip-comments', action='store_true', default=True,
-                              help='Strip HTML comments (default: True)')
-    crawler_group.add_argument('--crawl-respect-robots', action='store_true', default=False,
-                              help='Respect robots.txt (default: False)')
-    crawler_group.add_argument('--crawl-concurrency', type=int, default=3, metavar='N',
-                              help='Number of concurrent requests (default: 3)')
-    crawler_group.add_argument('--crawl-restrict-path', action='store_true',
-                              help='Restrict crawl to paths under start URL\'s initial path')
-    crawler_group.add_argument('--crawl-include-pdfs', action='store_true', default=True,
-                              help='Extract text from PDF files (default: True)')
-    crawler_group.add_argument('--crawl-ignore-epubs', action='store_true', default=True,
-                              help='Skip EPUB files (default: True)')
-    
-    # Help option
-    parser.add_argument('-h', '--help', action='store_true',
-                        help='Show help message and exit')
-    
-    return parser
-
-async def main():
+def main():
     console = Console()
 
     # Check if help is requested
@@ -2339,6 +1893,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    if HAS_DOTENV:
-        load_dotenv()
-    asyncio.run(main())
+    main()

@@ -15,7 +15,3 @@ openpyxl
 xlrd
 tabulate
 PyYAML
-python-dotenv
-aiohttp
-readability-lxml
-lxml
