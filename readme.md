@@ -6,7 +6,7 @@ OneFileLLM is a command-line tool designed to streamline the creation of informa
 - Automatic source type detection based on provided path, URL, or identifier
 - Support for local files and/or directories, GitHub repositories, GitHub pull requests, GitHub issues, academic papers from ArXiv, YouTube transcripts, web page documentation, Sci-Hub hosted papers via DOI or PMID
 - Handling of multiple file formats, including Jupyter Notebooks (.ipynb), PDFs, and Excel files (.xls/.xlsx)
-- Web crawling functionality to extract content from linked pages up to a specified depth
+- Advanced asynchronous web crawling with extensive configuration options for depth, concurrency, content filtering, and robots.txt compliance
 - Integration with Sci-Hub for automatic downloading of research papers using DOIs or PMIDs
 - Text preprocessing, including compressed and uncompressed outputs, stopword removal, and lowercase conversion
 - Automatic copying of uncompressed text to the clipboard for easy pasting into LLMs
@@ -156,6 +156,125 @@ python onefilellm.py github_repo research_sources
 
 Aliases are stored in your home directory at `~/.onefilellm_aliases/` for easy access from any location.
 
+### Advanced Web Crawling
+
+OneFileLLM features a powerful asynchronous web crawler with extensive configuration options for precise control over content extraction:
+
+#### Basic Web Crawling
+
+```bash
+# Basic web crawl (default: 3 levels deep, up to 1000 pages)
+python onefilellm.py https://docs.example.com
+
+# Custom depth and page limits
+python onefilellm.py https://example.com --crawl-max-depth 5 --crawl-max-pages 200
+```
+
+#### URL Pattern Filtering
+
+```bash
+# Include only specific URL patterns
+python onefilellm.py https://docs.example.com --crawl-include-pattern "/docs/"
+
+# Exclude specific patterns (CSS, JS, images)
+python onefilellm.py https://example.com --crawl-exclude-pattern "\.(css|js|png|jpg|gif)$"
+
+# Restrict crawling to paths under the start URL
+python onefilellm.py https://example.com/docs --crawl-restrict-path
+```
+
+#### Content Control
+
+```bash
+# Include images and code blocks
+python onefilellm.py https://example.com --crawl-include-images
+
+# Exclude code blocks from output
+python onefilellm.py https://example.com --crawl-no-include-code
+
+# Disable heading extraction
+python onefilellm.py https://example.com --crawl-no-extract-headings
+
+# Include PDF files in crawl
+python onefilellm.py https://example.com --crawl-include-pdfs
+
+# Follow external links (default: stay on same domain)
+python onefilellm.py https://example.com --crawl-follow-links
+```
+
+#### HTML Processing Options
+
+```bash
+# Disable readability cleaning (keep raw HTML structure)
+python onefilellm.py https://example.com --crawl-no-clean-html
+
+# Keep JavaScript and CSS code
+python onefilellm.py https://example.com --crawl-no-strip-js --crawl-no-strip-css
+
+# Keep HTML comments
+python onefilellm.py https://example.com --crawl-no-strip-comments
+```
+
+#### Crawling Behavior
+
+```bash
+# Custom user agent
+python onefilellm.py https://example.com --crawl-user-agent "MyBot/1.0"
+
+# Delay between requests (seconds)
+python onefilellm.py https://example.com --crawl-delay 1.0
+
+# Request timeout (seconds)
+python onefilellm.py https://example.com --crawl-timeout 30
+
+# Concurrent requests (default: 3)
+python onefilellm.py https://example.com --crawl-concurrency 5
+
+# Respect robots.txt (default: ignore for backward compatibility)
+python onefilellm.py https://example.com --crawl-respect-robots
+```
+
+#### Complete Advanced Example
+
+```bash
+# Comprehensive crawl with custom settings
+python onefilellm.py https://docs.example.com \
+  --crawl-max-depth 4 \
+  --crawl-max-pages 500 \
+  --crawl-include-pattern "/docs/|/api/" \
+  --crawl-exclude-pattern "\.(pdf|zip|exe)$" \
+  --crawl-include-images \
+  --crawl-delay 0.5 \
+  --crawl-concurrency 2 \
+  --crawl-respect-robots \
+  --crawl-restrict-path
+```
+
+#### Web Crawler Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--crawl-max-depth` | int | 3 | Maximum crawl depth from start URL |
+| `--crawl-max-pages` | int | 1000 | Maximum number of pages to crawl |
+| `--crawl-user-agent` | str | OneFileLLMCrawler/1.1 | User agent string for requests |
+| `--crawl-delay` | float | 0.25 | Delay between requests in seconds |
+| `--crawl-include-pattern` | str | None | Regex pattern for URLs to include |
+| `--crawl-exclude-pattern` | str | None | Regex pattern for URLs to exclude |
+| `--crawl-timeout` | int | 20 | Request timeout in seconds |
+| `--crawl-include-images` | flag | False | Include image URLs in output |
+| `--crawl-no-include-code` | flag | False | Exclude code blocks from output |
+| `--crawl-no-extract-headings` | flag | False | Exclude heading extraction |
+| `--crawl-follow-links` | flag | False | Follow links to external domains |
+| `--crawl-no-clean-html` | flag | False | Disable readability cleaning |
+| `--crawl-no-strip-js` | flag | False | Keep JavaScript code |
+| `--crawl-no-strip-css` | flag | False | Keep CSS styles |
+| `--crawl-no-strip-comments` | flag | False | Keep HTML comments |
+| `--crawl-respect-robots` | flag | False | Respect robots.txt files |
+| `--crawl-concurrency` | int | 3 | Number of concurrent requests |
+| `--crawl-restrict-path` | flag | False | Restrict crawl to paths under start URL |
+| `--crawl-no-include-pdfs` | flag | False | Skip PDF files during crawl |
+| `--crawl-no-ignore-epubs` | flag | False | Include EPUB files in crawl |
+
 ### Expected Inputs and Resulting Outputs
 The tool supports the following input options:
 
@@ -236,8 +355,42 @@ The script generates the following output files:
 
 ## Configuration
 
-- To modify the allowed file types for repository processing, update the `allowed_extensions` list in the code.
-- To change the depth of web crawling, adjust the `max_depth` variable in the code.
+### File Type Configuration
+
+To modify the allowed file types for repository processing, update the `allowed_extensions` list in the code:
+
+```python
+allowed_extensions = ['.py', '.txt', '.js', '.rst', '.sh', '.md', '.pyx', '.html', '.yaml','.json', '.jsonl', '.ipynb', '.h', '.c', '.sql', '.csv']
+```
+
+### Web Crawling Configuration
+
+Web crawling behavior is now controlled through command-line arguments rather than hardcoded values. You can configure:
+
+- **Crawl depth**: Use `--crawl-max-depth N` (default: 3)
+- **Page limits**: Use `--crawl-max-pages N` (default: 1000)  
+- **URL filtering**: Use `--crawl-include-pattern` and `--crawl-exclude-pattern`
+- **Content processing**: Use flags like `--crawl-include-images`, `--crawl-no-include-code`
+- **Request behavior**: Use `--crawl-delay`, `--crawl-timeout`, `--crawl-concurrency`
+- **Domain restrictions**: Use `--crawl-follow-links`, `--crawl-restrict-path`
+- **Robots.txt compliance**: Use `--crawl-respect-robots`
+
+### Environment Variables
+
+The tool supports environment variables for configuration:
+
+- **GITHUB_TOKEN**: Set your GitHub personal access token for private repository access
+- **RUN_INTEGRATION_TESTS**: Set to `true` to enable integration tests
+- **RUN_SLOW_TESTS**: Set to `true` to enable slow tests
+
+You can also use a `.env` file in the project root directory to set these variables:
+
+```bash
+# .env file
+GITHUB_TOKEN=your_github_token_here
+RUN_INTEGRATION_TESTS=false
+RUN_SLOW_TESTS=false
+```
 
 ## Obtaining a GitHub Personal Access Token
 
@@ -392,6 +545,15 @@ This XML structure provides clear delineation of different content types and sou
 
 ## Recent Changes
 
+- **2025-05-30:**
+  - **Major Enhancement**: Implemented advanced asynchronous web crawler with extensive configuration options
+  - Added 19 new command-line switches for web crawling control (`--crawl-*` options)
+  - Integrated structured content extraction with support for headings, code blocks, tables, and images
+  - Added robots.txt compliance, concurrent request control, and URL pattern filtering
+  - Implemented python-dotenv support for environment variable management
+  - Enhanced test suite with 57 comprehensive tests covering GitHub Issues/PRs, advanced web crawling, and multiple input processing
+  - Converted core functionality to async/await architecture for improved performance
+
 - **2025-05-14:**
   - Added text stream input processing directly from stdin or clipboard
   - Implemented format detection for plain text, Markdown, JSON, HTML, and YAML
@@ -449,9 +611,25 @@ This XML structure provides clear delineation of different content types and sou
 
 
 ## Notes
-- For Repos, Modify this line of code to add or remove filetypes processed: ``` allowed_extensions = ['.py', '.txt', '.js', '.rst', '.sh', '.md', '.pyx', '.html', '.yaml','.json', '.jsonl', '.ipynb', '.h', '.c', '.sql', '.csv'] ```
-- For excluding files, modify the excluded_patterns list to customize which files are filtered out
-- For excluding directories, modify the EXCLUDED_DIRS list to customize which directories are skipped
-- For Web scraping, Modify this line of code to change how many links deep from the starting URL to include ``` max_depth = 2 ```
-- Token counts are displayed in the console for both output files.
+
+### Repository Processing
+- **File types**: Modify the `allowed_extensions` list in the code to add or remove file types:
+  ```python
+  allowed_extensions = ['.py', '.txt', '.js', '.rst', '.sh', '.md', '.pyx', '.html', '.yaml','.json', '.jsonl', '.ipynb', '.h', '.c', '.sql', '.csv']
+  ```
+- **File exclusion**: Modify the `excluded_patterns` list to customize which files are filtered out
+- **Directory exclusion**: Modify the `EXCLUDED_DIRS` list to customize which directories are skipped
+
+### Web Crawling
+- **Crawl depth**: Use `--crawl-max-depth N` command-line option (default: 3)
+- **Page limits**: Use `--crawl-max-pages N` command-line option (default: 1000)
+- **URL filtering**: Use `--crawl-include-pattern` and `--crawl-exclude-pattern` for precise control
+- **Content control**: Use various `--crawl-*` flags for images, code blocks, headings, etc.
+- **Performance**: Use `--crawl-concurrency N` and `--crawl-delay X` for request management
+- **Compliance**: Use `--crawl-respect-robots` to honor robots.txt files
+
+### General
+- Token counts are displayed in the console for both output files
+- Environment variables can be set via `.env` file for easier configuration
+- All web crawling configuration is now done via command-line arguments rather than code modification
 

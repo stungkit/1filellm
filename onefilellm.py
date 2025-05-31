@@ -1,3 +1,5 @@
+import asyncio
+import time
 import requests
 from bs4 import BeautifulSoup, Comment
 from urllib.parse import urljoin, urlparse
@@ -24,7 +26,13 @@ from rich.prompt import Prompt
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 import xml.etree.ElementTree as ET # Keep for preprocess_text if needed
 import pandas as pd
-from typing import Union, List, Dict
+from typing import Union, List, Dict, Optional, Set, Tuple
+from dotenv import load_dotenv
+from urllib.robotparser import RobotFileParser
+import aiohttp
+from readability import Document
+import io
+import argparse
 
 # Import utility functions
 from utils import (
@@ -1070,6 +1078,543 @@ def crawl_and_extract_text(base_url, max_depth, include_pdfs, ignore_epubs):
     }
 
 
+# --- Helper functions for DocCrawler ---
+def _detect_code_language_heuristic(code: str) -> str:
+    """Attempt to detect programming language of code block with naive heuristics."""
+    if re.search(r'^\s*(import|from)\s+\w+\s+import|def\s+\w+\s*\(|class\s+\w+[:\(]', code, re.MULTILINE):
+        return "python"
+    elif re.search(r'^\s*(function|const|let|var|import)\s+|=\>|{\s*\n|export\s+', code, re.MULTILINE):
+        return "javascript"
+    elif re.search(r'^\s*(#include|int\s+main|using\s+namespace)', code, re.MULTILINE):
+        return "cpp"
+    elif re.search(r'^\s*(public\s+class|import\s+java|@Override)', code, re.MULTILINE):
+        return "java"
+    elif re.search(r'<\?php|\$\w+\s*=', code, re.MULTILINE):
+        return "php"
+    elif re.search(r'^\s*(use\s+|fn\s+\w+|let\s+mut|impl)', code, re.MULTILINE):
+        return "rust"
+    elif re.search(r'^\s*(package\s+main|import\s+\(|func\s+\w+\s*\()', code, re.MULTILINE):
+        return "go"
+    elif re.search(r'<html|<body|<div|<script|<style', code, re.IGNORECASE | re.MULTILINE):
+        return "html"
+    elif re.search(r'^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE TABLE)', code, re.IGNORECASE | re.MULTILINE):
+        return "sql"
+    return "code"  # Default if no strong signal
+
+
+def _clean_text_content(text: str) -> str:
+    """Clean and normalize text content."""
+    if not text:
+        return ""
+    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]', ' ', text)  # Various space chars
+    text = re.sub(r'[\u2018\u2019]', "'", text)  # Smart quotes to standard
+    text = re.sub(r'[\u201C\u201D]', '"', text)  # Smart quotes to standard
+    return text
+
+
+class DocCrawler:
+    """Advanced web crawler for extracting structured content from websites."""
+    
+    def __init__(self, start_url: str, cli_args: object, console_obj):
+        self.start_url = start_url
+        self.config = cli_args  # This will be the argparse namespace or similar
+        self.console = console_obj
+        
+        self.output_xml_parts: List[str] = []
+        self.visited_urls: Set[str] = set()
+        self.pages_crawled = 0
+        self.failed_urls: List[Tuple[str, str]] = []
+        
+        parsed_start = urlparse(self.start_url)
+        self.domain = parsed_start.netloc
+        self.start_url_path_prefix = parsed_start.path.rstrip('/') or "/"  # For --crawl-restrict-path
+        
+        self.robots_parsers: Dict[str, RobotFileParser] = {}
+        self.session: Optional[aiohttp.ClientSession] = None
+        self.rich_progress = None  # For Rich progress bar
+        self.progress_task_id = None
+        
+        # Map CLI args to attributes for convenience
+        # Using defaults from change.md since CLI args aren't implemented yet
+        self.max_depth = getattr(self.config, 'crawl_max_depth', 3)
+        self.max_pages = getattr(self.config, 'crawl_max_pages', 1000)  # Increased default from 100 to 1000
+        self.user_agent = getattr(self.config, 'crawl_user_agent', "OneFileLLMCrawler/1.1")
+        self.delay = getattr(self.config, 'crawl_delay', 0.25)
+        self.include_pattern = re.compile(self.config.crawl_include_pattern) if getattr(self.config, 'crawl_include_pattern', None) else None
+        self.exclude_pattern = re.compile(self.config.crawl_exclude_pattern) if getattr(self.config, 'crawl_exclude_pattern', None) else None
+        self.timeout = getattr(self.config, 'crawl_timeout', 20)
+        self.include_images = getattr(self.config, 'crawl_include_images', False)
+        self.include_code = getattr(self.config, 'crawl_include_code', True)
+        self.extract_headings = getattr(self.config, 'crawl_extract_headings', True)
+        self.follow_links = getattr(self.config, 'crawl_follow_links', False)
+        self.clean_html = getattr(self.config, 'crawl_clean_html', True)
+        self.strip_js = getattr(self.config, 'crawl_strip_js', True)
+        self.strip_css = getattr(self.config, 'crawl_strip_css', True)
+        self.strip_comments = getattr(self.config, 'crawl_strip_comments', True)
+        self.respect_robots = getattr(self.config, 'crawl_respect_robots', False)  # Changed to False for backward compatibility
+        self.concurrency = getattr(self.config, 'crawl_concurrency', 3)
+        self.restrict_path = getattr(self.config, 'crawl_restrict_path', False)
+        self.include_pdfs = getattr(self.config, 'crawl_include_pdfs', True)
+        self.ignore_epubs = getattr(self.config, 'crawl_ignore_epubs', True)
+
+    async def _init_session(self):
+        headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Connection": "keep-alive",
+        }
+        self.session = aiohttp.ClientSession(headers=headers)
+
+    async def _close_session(self):
+        if self.session:
+            await self.session.close()
+
+    async def _can_fetch_robots(self, url: str) -> bool:
+        if not self.respect_robots:
+            return True
+        
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc
+        
+        if domain not in self.robots_parsers:
+            robots_url = f"{parsed_url.scheme}://{domain}/robots.txt"
+            parser = RobotFileParser()
+            parser.set_url(robots_url)
+            try:
+                # RobotFileParser.read() is synchronous. Run in executor.
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, parser.read)
+                self.robots_parsers[domain] = parser
+            except Exception as e:
+                self.console.print(f"[yellow]Warning: Could not fetch/parse robots.txt for {domain}: {e}[/yellow]")
+                return True  # Default to allow if robots.txt is inaccessible
+        
+        return self.robots_parsers[domain].can_fetch(self.user_agent, url)
+
+    def _should_crawl_url(self, url: str) -> bool:
+        parsed_url = urlparse(url)
+        
+        if parsed_url.scheme not in ('http', 'https'):
+            return False
+        
+        # Handle external links based on --crawl-follow-links
+        if not self.follow_links and parsed_url.netloc != self.domain:
+            return False
+
+        if self.restrict_path:
+            # Ensure current URL's path starts with the initial URL's path prefix
+            current_path_normalized = parsed_url.path.rstrip('/') or "/"
+            if not current_path_normalized.startswith(self.start_url_path_prefix):
+                return False
+
+        if url in self.visited_urls:
+            return False
+        
+        if self.pages_crawled >= self.max_pages:
+            return False
+        
+        if self.include_pattern and not self.include_pattern.search(url):
+            return False
+        
+        if self.exclude_pattern and self.exclude_pattern.search(url):
+            return False
+
+        if self.ignore_epubs and url.lower().endswith('.epub'):
+            self.console.print(f"  [dim]Skipping EPUB: {url}[/dim]")
+            return False
+            
+        # Note: robots.txt check is async, so it's done in the worker.
+        return True
+
+    async def _fetch_url_content(self, url: str) -> Tuple[Optional[bytes], Optional[str], Optional[str]]:
+        if not self.session:
+            await self._init_session()
+        
+        try:
+            async with self.session.get(url, timeout=self.timeout) as response:
+                content_type_header = response.headers.get('Content-Type', '')
+                if response.status != 200:
+                    return None, f"HTTP Error {response.status}: {response.reason}", content_type_header
+                
+                # Read content as bytes first to handle different types
+                content_bytes = await response.read()
+                return content_bytes, None, content_type_header
+                
+        except asyncio.TimeoutError:
+            return None, "Request timed out", None
+        except aiohttp.ClientError as e:
+            return None, f"Client error: {e}", None
+        except Exception as e:
+            return None, f"Unexpected fetch error: {e}", None
+
+    def _extract_page_links(self, soup: BeautifulSoup, base_url: str) -> List[str]:
+        links = []
+        for link_tag in soup.find_all('a', href=True):
+            href = link_tag['href'].strip()
+            if not href or href.startswith(('#', 'javascript:', 'mailto:')):
+                continue
+            
+            full_url = urljoin(base_url, href)
+            # Normalize: remove fragment, ensure scheme for external links
+            parsed_new_url = urlparse(full_url)
+            normalized_url = parsed_new_url._replace(fragment="").geturl()
+            
+            links.append(normalized_url)
+        return links
+
+    def _process_html_to_structured_data(self, html_content: str, url: str) -> Dict:
+        try:
+            doc = Document(html_content)
+            title = _clean_text_content(doc.title())
+            
+            if self.clean_html:
+                # Use readability's cleaned HTML body
+                main_content_html = doc.summary()
+                soup = BeautifulSoup(main_content_html, 'lxml') 
+            else:
+                soup = BeautifulSoup(html_content, 'lxml')
+
+            if self.strip_js:
+                for script_tag in soup.find_all('script'):
+                    script_tag.decompose()
+            if self.strip_css:
+                for style_tag in soup.find_all('style'):
+                    style_tag.decompose()
+            if self.strip_comments:
+                for comment_tag in soup.find_all(string=lambda text_node: isinstance(text_node, Comment)):
+                    comment_tag.extract()
+            
+            meta_tags = {}
+            for meta in soup.find_all('meta'):
+                name = meta.get('name') or meta.get('property')
+                content = meta.get('content')
+                if name and content:
+                    meta_tags[_clean_text_content(name)] = _clean_text_content(content)
+            
+            structured_content_blocks = self._extract_structured_content_from_soup(soup, url)
+            
+            return {
+                'url': url,
+                'title': title,
+                'meta': meta_tags,
+                'content_blocks': structured_content_blocks
+            }
+        except Exception as e:
+            self.console.print(f"[bold red]Error processing HTML for {url}: {e}[/bold red]")
+            return {
+                'url': url,
+                'title': f"Error processing page: {url}",
+                'meta': {},
+                'content_blocks': [{'type': 'error', 'text': f"Failed to process HTML: {e}"}]
+            }
+
+    def _extract_structured_content_from_soup(self, soup: BeautifulSoup, base_url: str) -> List[Dict]:
+        content_blocks = []
+        
+        for element in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'pre', 'table']):
+            if element.name.startswith('h'):
+                level = int(element.name[1])
+                text = _clean_text_content(element.get_text())
+                if text:
+                    content_blocks.append({'type': 'heading', 'level': level, 'text': text})
+            elif element.name == 'p':
+                text = _clean_text_content(element.get_text())
+                if text:
+                    content_blocks.append({'type': 'paragraph', 'text': text})
+            elif element.name in ('ul', 'ol'):
+                items = [_clean_text_content(li.get_text()) for li in element.find_all('li', recursive=False) if _clean_text_content(li.get_text())]
+                if items:
+                    content_blocks.append({'type': 'list', 'list_type': element.name, 'items': items})
+            elif element.name == 'pre':  # Often contains code
+                code_text = element.get_text()  # Keep original spacing
+                if self.include_code and code_text.strip():
+                    # Attempt to find language from class attribute if present
+                    lang_class = element.get('class', [])
+                    lang = "code"  # default
+                    for cls in lang_class:
+                        if cls.startswith('language-'):
+                            lang = cls.replace('language-', '')
+                            break
+                    if lang == "code":  # if not found in class, use heuristic
+                        lang = _detect_code_language_heuristic(code_text)
+                    content_blocks.append({'type': 'code', 'language': lang, 'code': code_text})
+            elif element.name == 'table':
+                headers = []
+                rows_data = []
+                # Extract headers (th)
+                for th in element.select('thead tr th, table > tr:first-child > th'):
+                    headers.append(_clean_text_content(th.get_text()))
+                # Extract rows (tr) and cells (td)
+                for row_element in element.select('tbody tr, table > tr'):
+                    # Avoid re-processing header row if it was caught by th selector
+                    if row_element.find('th') and headers:
+                        if all(_clean_text_content(th.get_text()) in headers for th in row_element.find_all('th')):
+                            continue 
+                    
+                    cells = [_clean_text_content(td.get_text()) for td in row_element.find_all(['td', 'th'])]
+                    if cells:
+                        rows_data.append(cells)
+                if not headers and rows_data:  # If no <th>, use first row as header
+                    headers = rows_data.pop(0)
+
+                if rows_data:  # Only add table if it has data rows
+                    content_blocks.append({'type': 'table', 'headers': headers, 'rows': rows_data})
+
+        if self.include_images:
+            for img_tag in soup.find_all('img'):
+                src = img_tag.get('src')
+                alt = _clean_text_content(img_tag.get('alt', ''))
+                if src:
+                    img_url = urljoin(base_url, src)
+                    content_blocks.append({'type': 'image', 'url': img_url, 'alt_text': alt})
+        return content_blocks
+
+    def _initialize_xml_output(self):
+        self.output_xml_parts = [f'<source type="web_crawl" base_url="{escape_xml(self.start_url)}">']
+
+    def _add_page_to_xml_output(self, page_data: Dict):
+        page_xml_parts = [f'<page url="{escape_xml(page_data["url"])}">']
+        page_xml_parts.append(f'<title>{escape_xml(page_data.get("title", "N/A"))}</title>')
+
+        if page_data.get('meta'):
+            meta_xml_parts = ['<meta>']
+            for key, value in page_data['meta'].items():
+                meta_xml_parts.append(f'<meta_item name="{escape_xml(key)}">{escape_xml(str(value))}</meta_item>')
+            meta_xml_parts.append('</meta>')
+            page_xml_parts.append("".join(meta_xml_parts))
+
+        content_xml_parts = ['<content>']
+        for block in page_data.get('content_blocks', []):
+            block_type = block.get('type')
+            if block_type == 'paragraph':
+                content_xml_parts.append(f'<paragraph>{escape_xml(block.get("text", ""))}</paragraph>')
+            elif block_type == 'heading':
+                content_xml_parts.append(f'<heading level="{block.get("level", 0)}">{escape_xml(block.get("text", ""))}</heading>')
+            elif block_type == 'list':
+                list_items_xml = "".join([f'<item>{escape_xml(item)}</item>' for item in block.get("items", [])])
+                content_xml_parts.append(f'<list type="{block.get("list_type", "ul")}">{list_items_xml}</list>')
+            elif block_type == 'code':
+                # For code, do not escape_xml the content to preserve syntax
+                content_xml_parts.append(f'<code language="{escape_xml(block.get("language", "unknown"))}">{block.get("code", "")}</code>')
+            elif block_type == 'image':
+                content_xml_parts.append(f'<image src="{escape_xml(block.get("url", ""))}" alt_text="{escape_xml(block.get("alt_text", ""))}" />')
+            elif block_type == 'table':
+                table_parts = ['<table>']
+                if block.get('headers'):
+                    header_row = "".join([f'<th>{escape_xml(h)}</th>' for h in block['headers']])
+                    table_parts.append(f'<thead><tr>{header_row}</tr></thead>')
+                
+                body_rows = []
+                for row_data in block.get('rows', []):
+                    cell_row = "".join([f'<td>{escape_xml(cell)}</td>' for cell in row_data])
+                    body_rows.append(f'<tr>{cell_row}</tr>')
+                if body_rows:
+                    table_parts.append(f'<tbody>{"".join(body_rows)}</tbody>')
+                table_parts.append('</table>')
+                content_xml_parts.append("".join(table_parts))
+            elif block_type == 'error':
+                content_xml_parts.append(f'<error_in_page>{escape_xml(block.get("text", "Unknown page error"))}</error_in_page>')
+
+        content_xml_parts.append('</content>')
+        page_xml_parts.append("".join(content_xml_parts))
+        page_xml_parts.append('</page>')
+        self.output_xml_parts.append("\n".join(page_xml_parts))
+    
+    async def _process_pdf_content_from_bytes(self, pdf_bytes: bytes, url: str) -> Optional[Dict]:
+        self.console.print(f"  [cyan]Extracting text from PDF:[/cyan] {url}")
+        try:
+            pdf_file_obj = io.BytesIO(pdf_bytes)
+            pdf_reader = PdfReader(pdf_file_obj)
+            if not pdf_reader.pages:
+                self.console.print(f"  [yellow]Warning: PDF has no pages or is encrypted: {url}[/yellow]")
+                return None
+            
+            text_list = []
+            for i, page_obj in enumerate(pdf_reader.pages):
+                try:
+                    page_text = page_obj.extract_text()
+                    if page_text:
+                        text_list.append(page_text)
+                except Exception as page_e:
+                    self.console.print(f"  [yellow]Warning: Could not extract text from page {i+1} of {url}: {page_e}[/yellow]")
+            
+            if not text_list:
+                self.console.print(f"  [yellow]Warning: No text extracted from PDF: {url}[/yellow]")
+                return None
+            
+            full_text = "\n\n--- Page Break ---\n\n".join(text_list)
+            return {
+                'url': url,
+                'title': f"PDF: {os.path.basename(urlparse(url).path)}",
+                'meta': {},
+                'content_blocks': [{'type': 'paragraph', 'text': full_text}]
+            }
+        except Exception as e:
+            self.console.print(f"[bold red]Error reading PDF content for {url}: {e}[/bold red]")
+            return {
+                'url': url,
+                'title': f"Error processing PDF: {url}",
+                'meta': {},
+                'content_blocks': [{'type': 'error', 'text': f"Failed to process PDF content: {e}"}]
+            }
+
+    async def _worker(self, queue: asyncio.Queue):
+        while True:
+            try:
+                url, depth = await queue.get()
+
+                if self.pages_crawled >= self.max_pages:
+                    queue.task_done()
+                    continue
+                
+                # Perform async robots.txt check here
+                if not await self._can_fetch_robots(url):
+                    self.console.print(f"  [dim]Skipping (robots.txt): {url}[/dim]")
+                    self.visited_urls.add(url)
+                    queue.task_done()
+                    continue
+
+                # _should_crawl_url is synchronous and checks other conditions
+                if not self._should_crawl_url(url):
+                    self.visited_urls.add(url)
+                    queue.task_done()
+                    continue
+
+                self.visited_urls.add(url)
+                await asyncio.sleep(self.delay)
+
+                self.console.print(f"[cyan]Crawling (Depth {depth}):[/cyan] {url}")
+                
+                content_bytes, error_msg, content_type_header = await self._fetch_url_content(url)
+
+                page_data_dict = None
+                if error_msg:
+                    self.console.print(f"  [yellow]Failed to fetch {url}: {error_msg}[/yellow]")
+                    self.failed_urls.append((url, error_msg))
+                elif content_bytes and content_type_header:
+                    if 'application/pdf' in content_type_header.lower() and self.include_pdfs:
+                        page_data_dict = await self._process_pdf_content_from_bytes(content_bytes, url)
+                    elif 'text/html' in content_type_header.lower():
+                        try:
+                            # Attempt to decode HTML content
+                            html_text_content = content_bytes.decode('utf-8')
+                        except UnicodeDecodeError:
+                            try:
+                                html_text_content = content_bytes.decode('latin-1')
+                            except UnicodeDecodeError as ude:
+                                self.console.print(f"  [yellow]Failed to decode HTML for {url}: {ude}[/yellow]")
+                                self.failed_urls.append((url, f"Unicode decode error: {ude}"))
+                                html_text_content = None
+                        if html_text_content:
+                            page_data_dict = self._process_html_to_structured_data(html_text_content, url)
+                    else:
+                        self.console.print(f"  [dim]Skipping non-HTML/PDF content ({content_type_header}): {url}[/dim]")
+                
+                if page_data_dict:
+                    self._add_page_to_xml_output(page_data_dict)
+                    self.pages_crawled += 1
+                    if self.rich_progress and self.progress_task_id is not None:
+                        self.rich_progress.update(self.progress_task_id, advance=1, description=f"Crawled {self.pages_crawled}/{self.max_pages} pages")
+
+                # Add new links to queue if depth and page count allow
+                if page_data_dict and depth < self.max_depth and 'text/html' in (content_type_header or ""):
+                    if 'html_text_content' in locals() and html_text_content:
+                        soup_for_links = BeautifulSoup(html_text_content, 'lxml')
+                        new_links = self._extract_page_links(soup_for_links, url)
+                        for link_to_add in new_links:
+                            if self._should_crawl_url(link_to_add) and self.pages_crawled < self.max_pages:
+                                await queue.put((link_to_add, depth + 1))
+                queue.task_done()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                current_url_in_worker = url if 'url' in locals() else "unknown"
+                self.console.print(f"[bold red]Unexpected error in worker for URL {current_url_in_worker}: {type(e).__name__} - {e}[/bold red]")
+                import traceback
+                self.console.print(f"[dim]{traceback.format_exc()}[/dim]")
+                if 'queue' in locals() and hasattr(queue, 'task_done'):
+                     queue.task_done()
+
+    async def crawl(self, rich_progress_bar) -> str:
+        self.rich_progress = rich_progress_bar
+        self._initialize_xml_output()
+        await self._init_session()
+
+        queue: asyncio.Queue[Tuple[str, int]] = asyncio.Queue()
+        await queue.put((self.start_url, 0))
+
+        if self.rich_progress:
+            self.progress_task_id = self.rich_progress.add_task(
+                f"[cyan]Crawling {self.start_url}...", 
+                total=self.max_pages, 
+                completed=0
+            )
+        
+        worker_tasks = []
+        for i in range(self.concurrency):
+            task = asyncio.create_task(self._worker(queue), name=f"Worker-{i+1}")
+            worker_tasks.append(task)
+
+        try:
+            await queue.join()
+        except KeyboardInterrupt:
+            self.console.print("\n[bold yellow]Crawl interrupted by user. Finalizing...[/bold yellow]")
+        finally:
+            # Cancel all worker tasks
+            for task in worker_tasks:
+                task.cancel()
+            # Wait for all tasks to complete their cancellation
+            await asyncio.gather(*worker_tasks, return_exceptions=True)
+            
+            await self._close_session()
+
+        self.output_xml_parts.append('</source>')
+        
+        if self.rich_progress and self.progress_task_id is not None:
+            self.rich_progress.update(self.progress_task_id, completed=self.pages_crawled, description="Crawl finished")
+
+        self.console.print(f"\n[green]Crawl complete.[/green] Pages crawled: {self.pages_crawled}. Failed URLs: {len(self.failed_urls)}")
+        if self.failed_urls:
+            self.console.print(f"[yellow]Failed URLs ({len(self.failed_urls)}):[/yellow]")
+            for failed_url, reason in self.failed_urls[:5]:
+                self.console.print(f"  - {failed_url} : {reason}")
+            if len(self.failed_urls) > 5:
+                self.console.print(f"  ... and {len(self.failed_urls) - 5} more (check verbose logs if enabled).")
+        
+        return "\n".join(self.output_xml_parts)
+
+
+async def process_web_crawl(base_url: str, cli_args: object, console: Console, progress_bar) -> str:
+    """
+    Processes web crawling using the new DocCrawler.
+    This function will replace crawl_and_extract_text once DocCrawler is ported.
+    
+    Args:
+        base_url: The URL to start crawling from
+        cli_args: Namespace object with CLI arguments for crawler configuration
+        console: Rich Console object for output
+        progress_bar: Rich Progress bar for tracking progress
+        
+    Returns:
+        XML string with crawled content
+    """
+    console.print(f"\n[bold green]Initiating web crawl for:[/bold green] [bright_yellow]{base_url}[/bright_yellow]")
+    
+    # Create and run the DocCrawler
+    crawler = DocCrawler(start_url=base_url, cli_args=cli_args, console_obj=console)
+    
+    try:
+        xml_string_output = await crawler.crawl(rich_progress_bar=progress_bar)
+        return xml_string_output
+    except Exception as e:
+        console.print(f"[bold red]Error during web crawl for {base_url}: {e}[/bold red]")
+        import traceback
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        return f'<source type="web_crawl" base_url="{escape_xml(base_url)}"><error>Crawl failed: {escape_xml(str(e))}</error></source>'
+
+
 def process_doi_or_pmid(identifier):
     """
     Attempts to fetch a paper PDF via Sci-Hub using DOI or PMID, wrapped in XML.
@@ -1411,7 +1956,7 @@ def combine_xml_outputs(outputs):
     
     return '\n'.join(combined)
 
-def process_input(input_path, progress=None, task=None):
+async def process_input(input_path, args, progress=None, task=None):
     """
     Process a single input path and return the XML output.
     Extracted from main() for reuse with multiple inputs.
@@ -1481,11 +2026,10 @@ def process_input(input_path, progress=None, task=None):
                          f'</file>\n'
                          f'</source>')
             else: # Assume general web URL for crawling
-                crawl_result = crawl_and_extract_text(input_path, max_depth=1, include_pdfs=True, ignore_epubs=True) # Default max_depth=1
-                result = crawl_result['content']
-                if crawl_result['processed_urls']:
-                    with open(urls_list_file, 'w', encoding='utf-8') as urls_file:
-                        urls_file.write('\n'.join(crawl_result['processed_urls']))
+                # Use the new async DocCrawler
+                result = await process_web_crawl(input_path, args, console, progress)
+                # Note: The new crawler doesn't return processed_urls separately,
+                # they're included in the XML output if needed
         # Basic check for DOI (starts with 10.) or PMID (all digits)
         elif (input_path.startswith("10.") and "/" in input_path) or input_path.isdigit():
             result = process_doi_or_pmid(input_path)
@@ -1545,147 +2089,149 @@ def process_input(input_path, progress=None, task=None):
         # Return an error-wrapped source instead of raising
         return f'<source type="error" path="{escape_xml(input_path)}">\n<e>Failed to process: {escape_xml(str(e))}</e>\n</source>'
 
-def main():
+
+def create_argument_parser():
+    """Create and return the argument parser with all CLI options."""
+    parser = argparse.ArgumentParser(
+        description="OneFileLLM - Content Aggregator for LLMs",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Process a GitHub repository
+  python onefilellm.py https://github.com/user/repo
+  
+  # Process multiple inputs
+  python onefilellm.py file1.txt https://example.com file2.pdf
+  
+  # Use advanced web crawler with custom settings
+  python onefilellm.py https://example.com --crawl-max-depth 5 --crawl-max-pages 200
+  
+  # Process from clipboard
+  python onefilellm.py --clipboard
+  
+  # Process from stdin
+  cat file.txt | python onefilellm.py -
+"""
+    )
+    
+    # Positional arguments
+    parser.add_argument('inputs', nargs='*', help='Input paths, URLs, or aliases to process')
+    
+    # Input source options
+    parser.add_argument('-c', '--clipboard', action='store_true',
+                        help='Process text from clipboard')
+    parser.add_argument('-f', '--format', choices=['text', 'markdown', 'json', 'html', 'yaml', 'doculing', 'markitdown'],
+                        help='Override format detection for text input')
+    
+    # Alias management
+    parser.add_argument('--add-alias', nargs=2, metavar=('ALIAS_NAME', 'SOURCE'),
+                        help='Create an alias for a source')
+    parser.add_argument('--alias-from-clipboard', metavar='ALIAS_NAME',
+                        help='Create alias from clipboard content (one source per line)')
+    
+    # Web crawler options
+    crawler_group = parser.add_argument_group('Web Crawler Options')
+    crawler_group.add_argument('--crawl-max-depth', type=int, default=3,
+                               help='Maximum crawl depth (default: 3)')
+    crawler_group.add_argument('--crawl-max-pages', type=int, default=1000,
+                               help='Maximum pages to crawl (default: 1000)')
+    crawler_group.add_argument('--crawl-user-agent', default='OneFileLLMCrawler/1.1',
+                               help='User agent for web requests (default: OneFileLLMCrawler/1.1)')
+    crawler_group.add_argument('--crawl-delay', type=float, default=0.25,
+                               help='Delay between requests in seconds (default: 0.25)')
+    crawler_group.add_argument('--crawl-include-pattern',
+                               help='Regex pattern for URLs to include')
+    crawler_group.add_argument('--crawl-exclude-pattern',
+                               help='Regex pattern for URLs to exclude')
+    crawler_group.add_argument('--crawl-timeout', type=int, default=20,
+                               help='Request timeout in seconds (default: 20)')
+    crawler_group.add_argument('--crawl-include-images', action='store_true',
+                               help='Include image URLs in output')
+    crawler_group.add_argument('--crawl-no-include-code', action='store_false', dest='crawl_include_code',
+                               default=True, help='Exclude code blocks from output')
+    crawler_group.add_argument('--crawl-no-extract-headings', action='store_false', dest='crawl_extract_headings',
+                               default=True, help='Exclude heading extraction')
+    crawler_group.add_argument('--crawl-follow-links', action='store_true',
+                               help='Follow links to external domains')
+    crawler_group.add_argument('--crawl-no-clean-html', action='store_false', dest='crawl_clean_html',
+                               default=True, help='Disable readability cleaning')
+    crawler_group.add_argument('--crawl-no-strip-js', action='store_false', dest='crawl_strip_js',
+                               default=True, help='Keep JavaScript code')
+    crawler_group.add_argument('--crawl-no-strip-css', action='store_false', dest='crawl_strip_css',
+                               default=True, help='Keep CSS styles')
+    crawler_group.add_argument('--crawl-no-strip-comments', action='store_false', dest='crawl_strip_comments',
+                               default=True, help='Keep HTML comments')
+    crawler_group.add_argument('--crawl-respect-robots', action='store_true', dest='crawl_respect_robots',
+                               default=False, help='Respect robots.txt (default: ignore for backward compatibility)')
+    crawler_group.add_argument('--crawl-concurrency', type=int, default=3,
+                               help='Number of concurrent requests (default: 3)')
+    crawler_group.add_argument('--crawl-restrict-path', action='store_true',
+                               help='Restrict crawl to paths under start URL')
+    crawler_group.add_argument('--crawl-no-include-pdfs', action='store_false', dest='crawl_include_pdfs',
+                               default=True, help='Skip PDF files')
+    crawler_group.add_argument('--crawl-no-ignore-epubs', action='store_false', dest='crawl_ignore_epubs',
+                               default=True, help='Include EPUB files')
+    
+    return parser
+
+
+async def main():
     console = Console()
-
-    # Check if help is requested
-    if len(sys.argv) > 1 and sys.argv[1] in ["--help", "-h"]:
-        help_text = Text("\nonefilellm - Content Aggregation Tool\n", style="bright_white bold")
-        help_text.append("\nUsage:", style="bright_blue")
-        help_text.append("\n  python onefilellm.py [options] [path|url|alias]", style="bright_white")
-        
-        help_text.append("\n\nStandard Input Options:", style="bright_green")
-        help_text.append("\n  - ", style="bright_white")
-        help_text.append("                      Read text from standard input (stdin)", style="bright_cyan")
-        help_text.append("\n                           Example: cat report.txt | python onefilellm.py -", style="dim")
-        
-        help_text.append("\n  -c, --clipboard", style="bright_white")
-        help_text.append("         Read text from the system clipboard", style="bright_cyan")
-        
-        help_text.append("\n  -f TYPE, --format TYPE", style="bright_white")
-        help_text.append("  Force processing the input stream as TYPE", style="bright_cyan")
-        help_text.append("\n                           Supported TYPEs: text, markdown, json, html, yaml,", style="dim")
-        help_text.append("\n                                            doculing, markitdown", style="dim")
-        help_text.append("\n                           Example: cat README.md | python onefilellm.py - -f markdown", style="dim")
-        
-        help_text.append("\n\nAlias Management:", style="bright_green")
-        help_text.append("\n  --add-alias NAME URL    Create or update an alias NAME for the URL/path", style="bright_white")
-        help_text.append("\n  --alias-from-clipboard NAME", style="bright_white")
-        help_text.append("  Create an alias from clipboard contents", style="bright_cyan")
-        
-        help_text.append("\n\nGeneral Options:", style="bright_green")
-        help_text.append("\n  -h, --help", style="bright_white")
-        help_text.append("             Show this help message and exit", style="bright_cyan")
-        
-        help_panel = Panel(
-            help_text,
-            expand=False,
-            border_style="bold",
-            padding=(1, 2)
-        )
-        console.print(help_panel)
+    
+    # Parse command line arguments
+    parser = create_argument_parser()
+    args = parser.parse_args()
+    
+    # --- Handle alias management commands ---
+    if args.add_alias:
+        alias_name, source = args.add_alias
+        handle_add_alias(alias_name, source, console)
         return
-
-    # --- Start of New CLI Argument Handling for Streams ---
-    raw_args = sys.argv[1:] # Get arguments after the script name
-
+    
+    if args.alias_from_clipboard:
+        handle_alias_from_clipboard(args.alias_from_clipboard, console)
+        return
+    
+    # --- Handle stream input modes ---
     is_stream_input_mode = False
-    stream_source_dict = {} # To store {'type': 'stdin'} or {'type': 'clipboard'}
+    stream_source_dict = {}
     stream_content_to_process = None
-    user_format_override = None # For --format TYPE
-
-    # 1. Check for --format or -f (must be done before consuming other args)
-    temp_raw_args = list(raw_args) # Create a copy to modify while parsing --format
+    user_format_override = args.format
     
-    try:
-        if "--format" in temp_raw_args:
-            idx = temp_raw_args.index("--format")
-            if idx + 1 < len(temp_raw_args):
-                user_format_override = temp_raw_args[idx + 1].lower()
-                # Remove --format and its value so they don't interfere later
-                raw_args.pop(raw_args.index("--format")) 
-                raw_args.pop(raw_args.index(user_format_override))
-            else:
-                console.print("[bold red]Error: --format option requires a TYPE argument (e.g., --format markdown).[/bold red]")
-                return
-        elif "-f" in temp_raw_args:
-            idx = temp_raw_args.index("-f")
-            if idx + 1 < len(temp_raw_args):
-                user_format_override = temp_raw_args[idx + 1].lower()
-                raw_args.pop(raw_args.index("-f"))
-                raw_args.pop(raw_args.index(user_format_override))
-            else:
-                console.print("[bold red]Error: -f option requires a TYPE argument (e.g., -f markdown).[/bold red]")
-                return
-    except ValueError: # Should not happen if --format/ -f is present, but good for safety
-        console.print("[bold red]Error parsing --format/-f option.[/bold red]")
-        return
+    # Check for stdin input ('-' in inputs)
+    if '-' in args.inputs:
+        is_stream_input_mode = True
+        stream_source_dict = {'type': 'stdin'}
+        # Remove '-' from inputs list
+        args.inputs = [inp for inp in args.inputs if inp != '-']
     
-    # Supported formats for the --format flag (as per UX requirements)
-    supported_formats_for_override = ["text", "markdown", "json", "yaml", "html", "doculing", "markitdown"]
-    if user_format_override and user_format_override not in supported_formats_for_override:
-        # Print to stderr for better error detection in tests
-        print(f"Error: Invalid format type '{user_format_override}' specified with --format/-f.", file=sys.stderr)
-        console.print(f"[bold red]Error: Invalid format type '{user_format_override}' specified with --format/-f.[/bold red]")
-        console.print(f"Supported types are: {', '.join(supported_formats_for_override)}")
-        sys.exit(1)  # Exit with error code for better error detection
-
-    # 2. Check for stream input flags ('-' or '--clipboard' / '-c')
-    # These flags should typically be the primary non-option argument if no alias/path is given
-    
-    if "-" in raw_args: # Standard input
-        # Ensure '-' is the only primary arg, or handle it if it's part of alias resolution later.
-        # For now, assume if '-' is present, it's for stdin.
-        # We also need to make sure it's not an alias name starting/ending with '-'
-        # For simplicity in V1, if '-' is present, we assume stdin mode.
-        if not sys.stdin.isatty(): # Check if data is actually being piped
-            console.print("[bright_blue]Reading from standard input...[/bright_blue]")
-            stream_content_to_process = read_from_stdin()
-            if stream_content_to_process is None or not stream_content_to_process.strip():
-                console.print("[bold red]Error: No input received from standard input or input is empty.[/bold red]")
-                return
-            is_stream_input_mode = True
-            stream_source_dict = {'type': 'stdin'}
-        else:
-            # '-' was passed but nothing is piped. This could be an error,
-            # or it could be part of a filename/alias. The existing alias logic might handle this.
-            # For now, if isatty() is true, we won't enter stream_input_mode here.
-            # The user should pipe something: `echo "data" | python onefilellm.py -`
-            warning_msg = "Warning: '-' argument received, but no data seems to be piped via standard input."
-            # Print to both stdout and stderr for better test detection
-            print(warning_msg)
-            print(warning_msg, file=sys.stderr)  
-            console.print(f"[bold yellow]{warning_msg}[/bold yellow]")
-            console.print("To use standard input, pipe data like: `your_command | python onefilellm.py -`")
-            # Let it fall through to existing alias/path processing to see if "-" is part of a name.
-            # If it's truly meant for stdin without a pipe, it will fail if no content is read.
-
-    elif "--clipboard" in raw_args or "-c" in raw_args:
-        console.print("[bright_blue]Reading from clipboard...[/bright_blue]")
-        stream_content_to_process = read_from_clipboard()
-        if stream_content_to_process is None or not stream_content_to_process.strip():
-            console.print("[bold red]Error: Clipboard is empty, does not contain text, or could not be accessed.[/bold red]")
-            # Check for common Linux issue
-            if sys.platform.startswith('linux'):
-                console.print("[yellow]On Linux, you might need to install 'xclip' or 'xsel': `sudo apt install xclip`[/yellow]")
-            return
+    # Check for clipboard input
+    elif args.clipboard:
         is_stream_input_mode = True
         stream_source_dict = {'type': 'clipboard'}
-    # --- End of New CLI Argument Handling for Streams ---
 
-    # --- Existing Alias Management Commands (should be checked before stream mode fully takes over if stream args were not used) ---
-    # This logic should come *after* we check for stream-specific args,
-    # so --add-alias isn't mistaken for a stream operation.
-    # We need to adjust `raw_args` if --format was consumed.
-    
-    # Re-check raw_args because --format might have been removed
-    current_cli_args_for_alias_check = sys.argv[1:] # Use original full list for alias commands
-    if "--add-alias" in current_cli_args_for_alias_check:
-        if handle_add_alias(current_cli_args_for_alias_check, console): # handle_add_alias expects original raw_args
-            return 
-    elif "--alias-from-clipboard" in current_cli_args_for_alias_check:
-        if handle_alias_from_clipboard(current_cli_args_for_alias_check, console):
-            return
+    # Process stream input if specified
+
+    if is_stream_input_mode:
+        if stream_source_dict['type'] == 'stdin':
+            if not sys.stdin.isatty():
+                console.print("[bright_blue]Reading from standard input...[/bright_blue]")
+                stream_content_to_process = read_from_stdin()
+                if stream_content_to_process is None or not stream_content_to_process.strip():
+                    console.print("[bold red]Error: No input received from standard input or input is empty.[/bold red]")
+                    return
+            else:
+                console.print("[bold red]Error: '-' specified but no data piped to stdin.[/bold red]")
+                console.print("To use standard input, pipe data like: `your_command | python onefilellm.py -`")
+                return
+        elif stream_source_dict['type'] == 'clipboard':
+            console.print("[bright_blue]Reading from clipboard...[/bright_blue]")
+            stream_content_to_process = read_from_clipboard()
+            if stream_content_to_process is None or not stream_content_to_process.strip():
+                console.print("[bold red]Error: Clipboard is empty, does not contain text, or could not be accessed.[/bold red]")
+                if sys.platform.startswith('linux'):
+                    console.print("[yellow]On Linux, you might need to install 'xclip' or 'xsel': `sudo apt install xclip`[/yellow]")
+                return
     
     # --- Main Processing Logic Dispatch ---
     if is_stream_input_mode:
@@ -1769,27 +2315,14 @@ def main():
 
     # --- Determine Input Paths (resolve aliases) ---
     final_input_sources = []
-    if raw_args: # Use the raw_args that might have had --format removed
-        for arg_string in raw_args:
-            # Important: If '-', '--clipboard', or '-c' are still in raw_args here,
-            # it means they weren't consumed by stream mode (e.g., '-' with no pipe).
-            # The resolve_single_input_source should probably ignore these specific flags
-            # or treat them as invalid paths if they reach this point.
-            if arg_string not in ["-", "--clipboard", "-c"]: # Avoid re-processing stream flags as paths
-                final_input_sources.extend(resolve_single_input_source(arg_string, console))
+    if args.inputs:
+        for arg_string in args.inputs:
+            final_input_sources.extend(resolve_single_input_source(arg_string, console))
     
-    if not final_input_sources: # No command line args left, or all were empty aliases or resolved to empty
-        # This ensures interactive prompt only if no actual inputs determined
-        # and it wasn't an alias management command that already exited.
+    if not final_input_sources and not is_stream_input_mode:
+        # No inputs provided - show intro panel and prompt for input
         user_input_string = Prompt.ask("\n[bold dodger_blue1]Enter the path, URL, or alias[/bold dodger_blue1]", console=console).strip()
-        if user_input_string: # Process only if user provided some input
-            # Check again if user typed a stream command here by mistake
-            if user_input_string == "-":
-                console.print("[bold red]Error: To use '-', pipe data via stdin: `your_command | python onefilellm.py -`[/bold red]")
-                return
-            elif user_input_string == "--clipboard" or user_input_string == "-c":
-                console.print("[bold red]Error: To use clipboard, run as: `python onefilellm.py --clipboard`[/bold red]")
-                return
+        if user_input_string:
             final_input_sources.extend(resolve_single_input_source(user_input_string, console))
     
     # For minimal changes later, assign to input_paths
@@ -1820,7 +2353,7 @@ def main():
         try:
             # Process each input path
             for input_path in input_paths:
-                result = process_input(input_path, progress, task)
+                result = await process_input(input_path, args, progress, task)
                 if result:
                     outputs.append(result)
                     console.print(f"[green]Successfully processed: {input_path}[/green]")
@@ -1893,4 +2426,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Load environment variables from .env file
+    load_dotenv()
+    asyncio.run(main())
