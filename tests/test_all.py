@@ -40,10 +40,6 @@ from onefilellm import (
     combine_xml_outputs,
     preprocess_text,
     ensure_alias_dir_exists,
-    is_potential_alias,
-    handle_add_alias,
-    handle_alias_from_clipboard,
-    load_alias,
     ENABLE_COMPRESSION_AND_NLTK
 )
 
@@ -374,8 +370,15 @@ class TestCoreProcessing(unittest.TestCase):
         self.assertNotIn("   ", processed)  # Extra spaces removed
 
 
-class TestAliasSystem(unittest.TestCase):
-    """Test alias functionality"""
+# TODO: Update TestAliasSystem for new AliasManager implementation
+# The old alias system has been replaced with AliasManager class.
+# This test class needs to be rewritten to test the new alias functionality:
+# - AliasManager.add_or_update_alias(), remove_alias(), list_aliases_formatted()
+# - Alias expansion logic in main(), JSON storage, Core vs user alias precedence
+# - Placeholder {} functionality
+
+class TestAliasSystem2OLD(unittest.TestCase):
+    """Test old alias functionality - DISABLED"""
     
     def setUp(self):
         self.temp_alias_dir = tempfile.mkdtemp()
@@ -491,6 +494,113 @@ class TestAliasSystem(unittest.TestCase):
             self.assertFalse(alias_file.exists())
 
 
+class TestAliasSystem2(unittest.TestCase):
+    """Test new Alias Management 2.0 functionality"""
+    
+    def setUp(self):
+        self.temp_alias_dir = tempfile.mkdtemp()
+        self.alias_file = Path(self.temp_alias_dir) / "aliases.json"
+        
+        # Mock the alias configuration directory
+        self.config_dir_patcher = patch('onefilellm.ALIAS_CONFIG_DIR', Path(self.temp_alias_dir))
+        self.config_dir_patcher.start()
+        
+        # Mock the user aliases path
+        self.aliases_path_patcher = patch('onefilellm.USER_ALIASES_PATH', self.alias_file)
+        self.aliases_path_patcher.start()
+        
+    def tearDown(self):
+        self.config_dir_patcher.stop()
+        self.aliases_path_patcher.stop()
+        shutil.rmtree(self.temp_alias_dir)
+    
+    def test_alias_manager_creation(self):
+        """Test AliasManager instantiation and basic setup"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        
+        # Should have core aliases
+        self.assertIsInstance(manager.core_aliases_map, dict)
+        self.assertIn("ofl_repo", manager.core_aliases_map)
+        self.assertIn("gh_search", manager.core_aliases_map)
+        
+        # Should start with empty user aliases
+        self.assertEqual(len(manager.user_aliases_map), 0)
+    
+    def test_alias_manager_json_storage(self):
+        """Test JSON file creation and loading"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Add a user alias
+        result = manager.add_or_update_alias("test_alias", "https://example.com --flag")
+        self.assertTrue(result)
+        
+        # Verify JSON file was created
+        self.assertTrue(self.alias_file.exists())
+        
+        # Verify JSON content
+        with open(self.alias_file, 'r') as f:
+            data = json.load(f)
+            self.assertIn("test_alias", data)
+            self.assertEqual(data["test_alias"], "https://example.com --flag")
+    
+    def test_alias_manager_validation(self):
+        """Test alias name validation"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Valid names should work
+        self.assertTrue(manager.add_or_update_alias("valid_alias", "command"))
+        self.assertTrue(manager.add_or_update_alias("valid-alias", "command"))
+        self.assertTrue(manager.add_or_update_alias("valid_123", "command"))
+        
+        # Invalid names should be rejected
+        self.assertFalse(manager.add_or_update_alias("invalid/name", "command"))
+        self.assertFalse(manager.add_or_update_alias("invalid.name", "command"))
+        self.assertFalse(manager.add_or_update_alias("--invalid", "command"))
+        self.assertFalse(manager.add_or_update_alias("", "command"))
+    
+    def test_alias_manager_precedence(self):
+        """Test user aliases override core aliases"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Check core alias exists
+        core_command = manager.get_command("ofl_repo")
+        self.assertIsNotNone(core_command)
+        self.assertIn("github.com/jimmc414/onefilellm", core_command)
+        
+        # Override with user alias
+        manager.add_or_update_alias("ofl_repo", "https://my-custom-repo.com")
+        
+        # Should now return user alias
+        user_command = manager.get_command("ofl_repo")
+        self.assertEqual(user_command, "https://my-custom-repo.com")
+        
+        # Remove user alias
+        manager.remove_alias("ofl_repo")
+        
+        # Should restore core alias
+        restored_command = manager.get_command("ofl_repo")
+        self.assertEqual(restored_command, core_command)
+
+
 class TestIntegration(unittest.TestCase):
     """Integration tests for external services"""
     
@@ -572,11 +682,19 @@ class TestCLIFunctionality(unittest.TestCase):
         return stdout, stderr, process.returncode
     
     def test_help_message(self):
-        """Test help message"""
+        """Test regular help message"""
         stdout, stderr, returncode = self.run_cli(["--help"])
+        self.assertEqual(returncode, 0, f"Help command failed with stderr: {stderr}")
         self.assertIn("usage:", stdout.lower())  # Case insensitive
         self.assertIn("options:", stdout.lower())
         self.assertIn("--format", stdout)
+        self.assertIn("onefilellm", stdout.lower())
+    
+    def test_help_full_message(self):
+        """Test comprehensive help message (--help-full) - DISABLED: Feature not implemented yet"""
+        # TODO: Implement --help-full argument and comprehensive help content
+        # The new alias system documentation needs to be integrated into a full help system
+        self.skipTest("--help-full feature not yet implemented. Use --help-topic instead.")
     
     def test_stdin_input(self):
         """Test stdin input processing"""
@@ -1121,7 +1239,7 @@ def run_all_tests(verbosity=2):
         TestTextFormatDetection,
         TestStreamProcessing,
         TestCoreProcessing,
-        TestAliasSystem,
+        TestAliasSystem2,  # New Alias Management 2.0 tests
         TestIntegration,
         TestCLIFunctionality,
         TestErrorHandling,

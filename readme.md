@@ -116,45 +116,82 @@ When multiple inputs are provided, OneFileLLM will:
 
 ### Using Aliases
 
-OneFileLLM now includes an alias system to save you from typing the same URLs or paths repeatedly:
+OneFileLLM includes a powerful alias system that allows you to create shortcuts for frequently used commands with support for placeholders and advanced management:
 
-#### Creating Aliases
+#### Managing Aliases
 
-You can create aliases for single or multiple sources:
-
-```bash
-# Create an alias for a single source
-python onefilellm.py --add-alias github_repo https://github.com/jimmc414/onefilellm
-
-# Create an alias for multiple sources
-python onefilellm.py --add-alias mixed_sources test_file.txt https://github.com/jimmc414/onefilellm/blob/main/README.md
-```
-
-#### Creating Aliases from Clipboard
-
-You can also create aliases from content in your clipboard, with one source per line:
+Create, list, and remove aliases using the new alias management commands:
 
 ```bash
-# First copy multiple URLs or paths to your clipboard (one per line)
-python onefilellm.py --alias-from-clipboard research_sources
+# Add or update an alias
+python onefilellm.py --alias-add myrepo "https://github.com/user/repo"
+
+# Add alias with flags and options
+python onefilellm.py --alias-add deepcrawl "https://docs.example.com --crawl-max-depth 4 --crawl-include-pattern '/docs/'"
+
+# List all aliases (core and user-defined)
+python onefilellm.py --alias-list
+
+# List only pre-shipped core aliases
+python onefilellm.py --alias-list-core
+
+# Remove a user-defined alias
+python onefilellm.py --alias-remove myrepo
 ```
+
+#### Placeholder Support
+
+Aliases support a `{}` placeholder that gets replaced with your input:
+
+```bash
+# Create alias with placeholder
+python onefilellm.py --alias-add github_search "https://github.com/search?q={}"
+
+# Use with replacement value
+python onefilellm.py github_search "onefilellm"
+# Expands to: https://github.com/search?q=onefilellm
+
+# Create complex alias with multiple flags
+python onefilellm.py --alias-add crawl_site "{} --crawl-max-depth 3 --crawl-respect-robots"
+
+# Use it
+python onefilellm.py crawl_site "https://docs.python.org"
+# Expands to: https://docs.python.org --crawl-max-depth 3 --crawl-respect-robots
+```
+
+#### Core Aliases
+
+OneFileLLM comes with useful pre-shipped aliases:
+
+- `ofl_repo` - OneFileLLM GitHub repository
+- `ofl_readme` - OneFileLLM README file  
+- `gh_search` - GitHub search with placeholder: `https://github.com/search?q={}`
+- `arxiv_search` - ArXiv search with placeholder
+
+#### Alias Precedence and Storage
+
+- **User aliases override core aliases** with the same name
+- **JSON storage**: User aliases stored in `~/.onefilellm_aliases/aliases.json`
+- **Robust error handling**: Graceful handling of missing or corrupted alias files
+- **Validation**: Alias names must be alphanumeric with optional hyphens/underscores
 
 #### Using Aliases
 
-Use your defined aliases just like any other input:
+Use aliases just like any other input:
 
 ```bash
-# Use a single alias
-python onefilellm.py github_repo
+# Use a simple alias
+python onefilellm.py ofl_repo
 
-# Mix aliases with direct sources
-python onefilellm.py github_repo test_file.txt
+# Use alias with placeholder
+python onefilellm.py gh_search "python"
 
-# Use multiple aliases together
-python onefilellm.py github_repo research_sources
+# Mix aliases with direct inputs
+python onefilellm.py ofl_repo local_file.txt
+
+# Combine multiple aliases and arguments
+python onefilellm.py ofl_repo github_search "machine learning" --format markdown
 ```
-
-Aliases are stored in your home directory at `~/.onefilellm_aliases/` for easy access from any location.
 
 ### Advanced Web Crawling
 
@@ -544,6 +581,17 @@ This XML structure provides clear delineation of different content types and sou
 
 
 ## Recent Changes
+
+- **2025-06-01:**
+  - **Major Enhancement: Alias Management 2.0**: Complete overhaul of the alias system
+  - Added powerful new alias management with JSON-based storage (`~/.onefilellm_aliases/aliases.json`)
+  - Implemented placeholder support using `{}` token for dynamic command substitution
+  - Added new CLI commands: `--alias-add`, `--alias-remove`, `--alias-list`, `--alias-list-core`
+  - Created pre-shipped core aliases (ofl_repo, ofl_readme, gh_search, arxiv_search)
+  - Added user alias precedence over core aliases for customization
+  - Implemented early alias expansion before argument parsing for proper command-line integration
+  - Enhanced alias validation and robust error handling for missing/corrupted files
+  - Replaced old file-per-alias system with centralized JSON management
 
 - **2025-05-30:**
   - **Major Enhancement**: Implemented advanced asynchronous web crawler with extensive configuration options
