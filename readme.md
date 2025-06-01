@@ -617,7 +617,7 @@ This XML structure provides clear delineation of different content types and sou
 
 - **2025-05-07:**
   - Added alias management system for frequently used sources
-  - Added `--add-alias` and `--alias-from-clipboard` commands
+  - Added legacy alias management system (replaced by Alias Management 2.0)
   - Fixed PDF text extraction for local PDF files
   - Changed root XML tag from `<combined_sources>` to `<onefilellm_output>`
   - Added cross-platform launcher scripts for Windows and Linux/macOS

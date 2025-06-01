@@ -2159,15 +2159,15 @@ def show_help_aliases():
     
     content.append("CREATE COMPREHENSIVE ALIASES\n", style="bold bright_cyan")
     content.append("  # Web development ecosystem (200K+ tokens)\n", style="white")
-    content.append("  python onefilellm.py --add-alias modern-web \\\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add modern-web \\\n", style="bright_green")
     content.append("    \"https://github.com/facebook/react,https://github.com/vercel/next.js,https://github.com/tailwindlabs/tailwindcss,https://reactjs.org/docs/,https://nextjs.org/docs,https://tailwindcss.com/docs\"\n\n", style="bright_green")
     
     content.append("  # AI/ML research ecosystem (500K+ tokens)\n", style="white")
-    content.append("  python onefilellm.py --add-alias ai-research \\\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add ai-research \\\n", style="bright_green")
     content.append("    \"10.1706.03762,arxiv:2005.14165,10.1038/s41586-021-03819-2,https://github.com/huggingface/transformers,https://github.com/openai/whisper,https://huggingface.co/docs\"\n\n", style="bright_green")
     
     content.append("  # Cloud native ecosystem (800K+ tokens)\n", style="white")
-    content.append("  python onefilellm.py --add-alias cloud-native \\\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add cloud-native \\\n", style="bright_green")
     content.append("    \"https://github.com/kubernetes/kubernetes,https://github.com/kubernetes/enhancements,https://kubernetes.io/docs/,https://github.com/istio/istio,https://github.com/prometheus/prometheus\"\n\n", style="bright_green")
     
     content.append("FROM CLIPBOARD BULK CREATION\n", style="bold bright_cyan")
@@ -2190,11 +2190,11 @@ def show_help_aliases():
     
     content.append("SPECIALIZED DOMAIN ALIASES\n", style="bold bright_cyan")
     content.append("  # Security research\n", style="white")
-    content.append("  python onefilellm.py --add-alias security-research \\\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add security-research \\\n", style="bright_green")
     content.append("    \"https://nvd.nist.gov/,https://github.com/OWASP/Top10,https://github.com/aquasecurity/trivy,CVE-2024-recent-reports.txt\"\n\n", style="bright_green")
     
     content.append("  # Academic conferences\n", style="white")
-    content.append("  python onefilellm.py --add-alias neurips-2024 \\\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add neurips-2024 \\\n", style="bright_green")
     content.append("    \"neurips-2024-papers.txt,10.48550/neurips-proceedings,https://neurips.cc/virtual/2024\"\n\n", style="bright_green")
     
     content.append("DYNAMIC ALIAS WORKFLOWS\n", style="bold bright_cyan")
@@ -2309,11 +2309,11 @@ def show_help_examples():
     
     content.append("MULTI-ALIAS RESEARCH WORKFLOWS\n", style="bold bright_cyan")
     content.append("  # Create specialized aliases\n", style="white")
-    content.append("  python onefilellm.py --add-alias ai-papers \\\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add ai-papers \\\n", style="bright_green")
     content.append("    \"10.1706.03762,arxiv:2005.14165,10.1038/s41586-021-03819-2\"\n", style="bright_green")
-    content.append("  python onefilellm.py --add-alias ai-codebases \\\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add ai-codebases \\\n", style="bright_green")
     content.append("    \"https://github.com/openai/whisper,https://github.com/huggingface/transformers\"\n", style="bright_green")
-    content.append("  python onefilellm.py --add-alias ai-docs \\\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add ai-docs \\\n", style="bright_green")
     content.append("    \"https://huggingface.co/docs,https://openai.com/research\"\n\n", style="bright_green")
     
     content.append("  # Combine all aliases with live sources\n", style="white")
@@ -2441,10 +2441,10 @@ MASSIVE CONTEXT AGGREGATION (800K-1M+ tokens):
 
 ALIAS WORKFLOWS:
   # Create aliases for complex workflows
-  python onefilellm.py --add-alias k8s-ecosystem \\
+  python onefilellm.py --alias-add k8s-ecosystem \\
     "https://github.com/kubernetes/kubernetes,https://kubernetes.io/docs/"
   
-  python onefilellm.py --add-alias ml-papers \\
+  python onefilellm.py --alias-add ml-papers \\
     "10.1706.03762,10.1038/s41586-021-03819-2,arxiv:2005.14165"
   
   # Combine multiple aliases + live sources
