@@ -2126,25 +2126,74 @@ def show_help_basic():
     content.append("ONEFILELLM\n", style="bold bright_green")
     content.append("Content aggregator for large language models\n\n", style="bright_cyan")
     
-    content.append("INPUT SOURCES\n", style="bold bright_cyan")
-    content.append("  GitHub repositories and pull requests\n", style="white")
-    content.append("  Web documentation with async crawler\n", style="white") 
-    content.append("  YouTube transcripts and ArXiv papers\n", style="white")
-    content.append("  Local files and directories\n", style="white")
-    content.append("  Text from stdin or clipboard\n", style="white")
-    content.append("  DOI and PMID references\n\n", style="white")
+    content.append("📁 LOCAL FILE SOURCES\n", style="bold bright_cyan")
+    content.append("  # Single files with automatic format detection\n", style="white")
+    content.append("  python onefilellm.py research_paper.pdf\n", style="bright_green")
+    content.append("  python onefilellm.py config.yaml\n", style="bright_green")
+    content.append("  python onefilellm.py notebook.ipynb\n", style="bright_green")
+    content.append("  python onefilellm.py data.csv\n", style="bright_green")
+    content.append("  python onefilellm.py --format json response.txt\n\n", style="bright_green")
     
-    content.append("OUTPUT FORMAT\n", style="bold bright_cyan")
-    content.append("  Structured XML with semantic tags\n", style="white")
-    content.append("  Content preserved unescaped for readability\n", style="white")
-    content.append("  Token counting and clipboard copy\n", style="white")
-    content.append("  Optional NLTK compression\n\n", style="white")
+    content.append("  # Multiple files and directories\n", style="white")
+    content.append("  python onefilellm.py src/ docs/ README.md\n", style="bright_green")
+    content.append("  python onefilellm.py *.py requirements.txt\n", style="bright_green")
+    content.append("  python onefilellm.py project/src/ project/tests/ config.yaml\n\n", style="bright_green")
     
-    content.append("BASIC USAGE\n", style="bold bright_cyan")
-    content.append("  python onefilellm.py https://github.com/user/repo\n", style="bright_green")
-    content.append("  python onefilellm.py file1.txt file2.pdf\n", style="bright_green")
+    content.append("🐙 GITHUB SOURCES\n", style="bold bright_cyan")
+    content.append("  # Repositories with different access levels\n", style="white")
+    content.append("  python onefilellm.py https://github.com/microsoft/vscode\n", style="bright_green")
+    content.append("  python onefilellm.py https://github.com/openai/whisper/tree/main/whisper\n", style="bright_green")
+    content.append("  python onefilellm.py https://github.com/user/private-repo  # Requires GITHUB_TOKEN\n\n", style="bright_green")
+    
+    content.append("  # Pull requests and issues\n", style="white")
+    content.append("  python onefilellm.py https://github.com/microsoft/vscode/pull/12345\n", style="bright_green")
+    content.append("  python onefilellm.py https://github.com/microsoft/vscode/issues/67890\n", style="bright_green")
+    content.append("  python onefilellm.py https://github.com/kubernetes/kubernetes/pulls\n\n", style="bright_green")
+    
+    content.append("🌐 WEB DOCUMENTATION\n", style="bold bright_cyan")
+    content.append("  # Single pages with readability extraction\n", style="white")
+    content.append("  python onefilellm.py https://docs.python.org/3/tutorial/\n", style="bright_green")
+    content.append("  python onefilellm.py https://react.dev/learn/thinking-in-react\n", style="bright_green")
+    content.append("  python onefilellm.py https://kubernetes.io/docs/concepts/overview/\n\n", style="bright_green")
+    
+    content.append("  # Multi-page crawling (see --help-topic crawling)\n", style="white")
+    content.append("  python onefilellm.py https://docs.djangoproject.com/ --crawl-max-depth 3\n", style="bright_green")
+    content.append("  python onefilellm.py https://fastapi.tiangolo.com/ --crawl-max-pages 100\n\n", style="bright_green")
+    
+    content.append("📺 MULTIMEDIA SOURCES\n", style="bold bright_cyan")
+    content.append("  # YouTube video transcripts\n", style="white")
+    content.append("  python onefilellm.py https://www.youtube.com/watch?v=dQw4w9WgXcQ\n", style="bright_green")
+    content.append("  python onefilellm.py https://youtu.be/kCc8FmEb1nY\n", style="bright_green")
+    content.append("  python onefilellm.py https://www.youtube.com/playlist?list=PLRqwX-V7Uu6ZF9C0YMKuns9sLDzK6zoiV\n\n", style="bright_green")
+    
+    content.append("📚 ACADEMIC SOURCES\n", style="bold bright_cyan")
+    content.append("  # ArXiv papers by URL or ID\n", style="white")
+    content.append("  python onefilellm.py https://arxiv.org/abs/2103.00020\n", style="bright_green")
+    content.append("  python onefilellm.py arxiv:2103.00020\n", style="bright_green")
+    content.append("  python onefilellm.py \"Attention Is All You Need\"\n\n", style="bright_green")
+    
+    content.append("  # DOI and PMID references\n", style="white")
+    content.append("  python onefilellm.py 10.1038/s41586-021-03819-2\n", style="bright_green")
+    content.append("  python onefilellm.py PMID:35177773\n", style="bright_green")
+    content.append("  python onefilellm.py doi:10.1126/science.abq1158\n\n", style="bright_green")
+    
+    content.append("⌨️  INPUT STREAMS\n", style="bold bright_cyan")
+    content.append("  # From clipboard\n", style="white")
     content.append("  python onefilellm.py --clipboard\n", style="bright_green")
-    content.append("  cat data.txt | python onefilellm.py -\n", style="bright_green")
+    content.append("  python onefilellm.py --clipboard --format markdown\n\n", style="bright_green")
+    
+    content.append("  # From stdin pipe\n", style="white")
+    content.append("  cat large_dataset.json | python onefilellm.py -\n", style="bright_green")
+    content.append("  curl -s https://api.github.com/repos/microsoft/vscode | python onefilellm.py - --format json\n", style="bright_green")
+    content.append("  echo 'Quick note content' | python onefilellm.py -\n\n", style="bright_green")
+    
+    content.append("📊 OUTPUT FEATURES\n", style="bold bright_cyan")
+    content.append("  ✓ Structured XML with semantic <source> tags\n", style="white")
+    content.append("  ✓ Content preserved unescaped for LLM readability\n", style="white")
+    content.append("  ✓ Automatic token counting (tiktoken)\n", style="white")
+    content.append("  ✓ Clipboard copy for immediate LLM use\n", style="white")
+    content.append("  ✓ Progress tracking with Rich console\n", style="white")
+    content.append("  ✓ Async processing for multiple sources\n", style="white")
     
     console.print(Panel(content, border_style="bright_blue", padding=(1, 2)))
 
@@ -2154,54 +2203,115 @@ def show_help_aliases():
     console = Console()
     
     content = Text()
-    content.append("ALIAS SYSTEM\n", style="bold bright_green")
-    content.append("Create shortcuts for massive multi-source workflows\n\n", style="bright_cyan")
+    content.append("ALIAS SYSTEM 2.0\n", style="bold bright_green")
+    content.append("JSON-based shortcuts for massive multi-source workflows\n\n", style="bright_cyan")
     
-    content.append("CREATE COMPREHENSIVE ALIASES\n", style="bold bright_cyan")
-    content.append("  # Web development ecosystem (200K+ tokens)\n", style="white")
+    content.append("🎯 BASIC ALIAS CREATION\n", style="bold bright_cyan")
+    content.append("  # Simple single-source aliases\n", style="white")
+    content.append("  python onefilellm.py --alias-add mcp \"https://github.com/anthropics/mcp\"\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add docs \"https://docs.python.org/3/\"\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add notes \"project_notes.md\"\n\n", style="bright_green")
+    
+    content.append("  # Multi-source aliases (space-separated)\n", style="white")
+    content.append("  python onefilellm.py --alias-add react-stack \\\n", style="bright_green")
+    content.append("    \"https://github.com/facebook/react https://reactjs.org/docs/ https://github.com/vercel/next.js\"\n\n", style="bright_green")
+    
+    content.append("🔍 DYNAMIC PLACEHOLDERS\n", style="bold bright_cyan")
+    content.append("  # Create searchable aliases with {} tokens\n", style="white")
+    content.append("  python onefilellm.py --alias-add gh-search \"https://github.com/search?q={}\"\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add arxiv-search \"https://arxiv.org/search/?query={}\"\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add gh-user \"https://github.com/{}\"\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-add docs-search \"https://docs.python.org/3/search.html?q={}\"\n\n", style="bright_green")
+    
+    content.append("  # Use placeholders dynamically\n", style="white")
+    content.append("  python onefilellm.py gh-search \"machine learning transformers\"\n", style="bright_green")
+    content.append("  python onefilellm.py arxiv-search \"attention mechanisms\"\n", style="bright_green")
+    content.append("  python onefilellm.py gh-user \"microsoft\"\n", style="bright_green")
+    content.append("  python onefilellm.py docs-search \"asyncio\"\n\n", style="bright_green")
+    
+    content.append("🏗️ COMPREHENSIVE ECOSYSTEM ALIASES\n", style="bold bright_cyan")
+    content.append("  # Modern web development stack (300K+ tokens)\n", style="white")
     content.append("  python onefilellm.py --alias-add modern-web \\\n", style="bright_green")
-    content.append("    \"https://github.com/facebook/react,https://github.com/vercel/next.js,https://github.com/tailwindlabs/tailwindcss,https://reactjs.org/docs/,https://nextjs.org/docs,https://tailwindcss.com/docs\"\n\n", style="bright_green")
+    content.append("    \"https://github.com/facebook/react https://github.com/vercel/next.js https://github.com/tailwindlabs/tailwindcss https://github.com/prisma/prisma https://reactjs.org/docs/ https://nextjs.org/docs https://tailwindcss.com/docs https://www.prisma.io/docs\"\n\n", style="bright_green")
     
-    content.append("  # AI/ML research ecosystem (500K+ tokens)\n", style="white")
+    content.append("  # AI/ML research ecosystem (600K+ tokens)\n", style="white")
     content.append("  python onefilellm.py --alias-add ai-research \\\n", style="bright_green")
-    content.append("    \"10.1706.03762,arxiv:2005.14165,10.1038/s41586-021-03819-2,https://github.com/huggingface/transformers,https://github.com/openai/whisper,https://huggingface.co/docs\"\n\n", style="bright_green")
+    content.append("    \"arxiv:1706.03762 arxiv:2005.14165 10.1038/s41586-021-03819-2 https://github.com/huggingface/transformers https://github.com/openai/whisper https://github.com/pytorch/pytorch https://huggingface.co/docs https://pytorch.org/docs https://openai.com/research\"\n\n", style="bright_green")
     
-    content.append("  # Cloud native ecosystem (800K+ tokens)\n", style="white")
-    content.append("  python onefilellm.py --alias-add cloud-native \\\n", style="bright_green")
-    content.append("    \"https://github.com/kubernetes/kubernetes,https://github.com/kubernetes/enhancements,https://kubernetes.io/docs/,https://github.com/istio/istio,https://github.com/prometheus/prometheus\"\n\n", style="bright_green")
+    content.append("  # Cloud native ecosystem (900K+ tokens)\n", style="white")
+    content.append("  python onefilellm.py --alias-add k8s-ecosystem \\\n", style="bright_green")
+    content.append("    \"https://github.com/kubernetes/kubernetes https://github.com/kubernetes/enhancements https://kubernetes.io/docs/ https://github.com/istio/istio https://github.com/prometheus/prometheus https://github.com/envoyproxy/envoy https://istio.io/latest/docs/ https://prometheus.io/docs/\"\n\n", style="bright_green")
     
-    content.append("FROM CLIPBOARD BULK CREATION\n", style="bold bright_cyan")
-    content.append("  Copy comprehensive source list to clipboard:\n", style="white")
-    content.append("    https://github.com/microsoft/TypeScript\n", style="dim")
-    content.append("    https://github.com/microsoft/TypeScript/issues\n", style="dim")
-    content.append("    https://www.typescriptlang.org/docs/\n", style="dim")
-    content.append("    https://github.com/DefinitelyTyped/DefinitelyTyped\n", style="dim")
-    content.append("    https://github.com/microsoft/TypeScript/wiki\n", style="dim")
-    content.append("    typescript-ecosystem-survey-2024.pdf\n", style="dim")
-    content.append("    https://www.youtube.com/watch?v=U6s2pdxebSo\n\n", style="dim")
-    content.append("  python onefilellm.py --alias-from-clipboard typescript-ecosystem\n\n", style="bright_green")
+    content.append("  # Security research and tools (400K+ tokens)\n", style="white")
+    content.append("  python onefilellm.py --alias-add security-stack \\\n", style="bright_green")
+    content.append("    \"https://github.com/OWASP/Top10 https://github.com/aquasecurity/trivy https://github.com/falcosecurity/falco https://owasp.org/www-project-top-ten/ https://aquasec.com/trivy/ https://falco.org/docs/\"\n\n", style="bright_green")
     
-    content.append("COMBINE MULTIPLE ALIASES\n", style="bold bright_cyan")
-    content.append("  # Massive context combination (1M+ tokens)\n", style="white")
-    content.append("  python onefilellm.py modern-web ai-research cloud-native \\\n", style="bright_green")
+    content.append("📊 SPECIALIZED DOMAIN ALIASES\n", style="bold bright_cyan")
+    content.append("  # Data science and analytics\n", style="white")
+    content.append("  python onefilellm.py --alias-add data-science \\\n", style="bright_green")
+    content.append("    \"https://github.com/pandas-dev/pandas https://github.com/numpy/numpy https://github.com/scikit-learn/scikit-learn https://pandas.pydata.org/docs/ https://numpy.org/doc/ https://scikit-learn.org/stable/\"\n\n", style="bright_green")
+    
+    content.append("  # DevOps and infrastructure\n", style="white")
+    content.append("  python onefilellm.py --alias-add devops-tools \\\n", style="bright_green")
+    content.append("    \"https://github.com/hashicorp/terraform https://github.com/ansible/ansible https://github.com/docker/docker https://terraform.io/docs https://docs.ansible.com/ https://docs.docker.com/\"\n\n", style="bright_green")
+    
+    content.append("  # Blockchain and crypto research\n", style="white")
+    content.append("  python onefilellm.py --alias-add crypto-research \\\n", style="bright_green")
+    content.append("    \"https://github.com/ethereum/ethereum-org-website https://github.com/bitcoin/bitcoin https://ethereum.org/en/developers/docs/ https://bitcoin.org/en/developer-documentation\"\n\n", style="bright_green")
+    
+    content.append("🧬 ACADEMIC AND RESEARCH ALIASES\n", style="bold bright_cyan")
+    content.append("  # NeurIPS 2024 conference collection\n", style="white")
+    content.append("  python onefilellm.py --alias-add neurips-2024 \\\n", style="bright_green")
+    content.append("    \"https://neurips.cc/virtual/2024 arxiv:2312.01234 arxiv:2311.05678 PMID:38123456\"\n\n", style="bright_green")
+    
+    content.append("  # Protein folding research\n", style="white")
+    content.append("  python onefilellm.py --alias-add protein-folding \\\n", style="bright_green")
+    content.append("    \"https://github.com/deepmind/alphafold https://github.com/deepmind/alphafold3 10.1038/s41586-021-03819-2 https://alphafold.ebi.ac.uk/help https://colabfold.mmseqs.com/\"\n\n", style="bright_green")
+    
+    content.append("  # Climate science data\n", style="white")
+    content.append("  python onefilellm.py --alias-add climate-research \\\n", style="bright_green")
+    content.append("    \"https://github.com/NCAR/cesm https://www.ipcc.ch/reports/ https://climate.nasa.gov/evidence/ doi:10.1038/s41467-021-24487-w\"\n\n", style="bright_green")
+    
+    content.append("💼 BUSINESS AND INDUSTRY ALIASES\n", style="bold bright_cyan")
+    content.append("  # Fintech and banking APIs\n", style="white")
+    content.append("  python onefilellm.py --alias-add fintech-apis \\\n", style="bright_green")
+    content.append("    \"https://github.com/stripe/stripe-python https://docs.stripe.com/api https://developer.paypal.com/docs/api/ https://plaid.com/docs/\"\n\n", style="bright_green")
+    
+    content.append("  # E-commerce platforms\n", style="white")
+    content.append("  python onefilellm.py --alias-add ecommerce-stack \\\n", style="bright_green")
+    content.append("    \"https://github.com/shopify/shopify-api-js https://shopify.dev/docs https://woocommerce.com/documentation/ https://magento.com/technical-resources\"\n\n", style="bright_green")
+    
+    content.append("🔗 COMPLEX ALIAS COMBINATIONS\n", style="bold bright_cyan")
+    content.append("  # Massive context aggregation (1.2M+ tokens)\n", style="white")
+    content.append("  python onefilellm.py modern-web ai-research k8s-ecosystem \\\n", style="bright_green")
     content.append("    https://github.com/microsoft/semantic-kernel \\\n", style="bright_green")
     content.append("    https://github.com/vercel/ai \\\n", style="bright_green")
-    content.append("    latest_tech_conference_notes.md\n\n", style="bright_green")
+    content.append("    conference_notes_2024.pdf \\\n", style="bright_green")
+    content.append("    local_research_projects/\n\n", style="bright_green")
     
-    content.append("SPECIALIZED DOMAIN ALIASES\n", style="bold bright_cyan")
-    content.append("  # Security research\n", style="white")
-    content.append("  python onefilellm.py --alias-add security-research \\\n", style="bright_green")
-    content.append("    \"https://nvd.nist.gov/,https://github.com/OWASP/Top10,https://github.com/aquasecurity/trivy,CVE-2024-recent-reports.txt\"\n\n", style="bright_green")
+    content.append("  # Multi-domain research synthesis\n", style="white")
+    content.append("  python onefilellm.py ai-research protein-folding climate-research \\\n", style="bright_green")
+    content.append("    \"https://www.youtube.com/watch?v=kCc8FmEb1nY\" \\\n", style="bright_green")
+    content.append("    interdisciplinary_notes.md\n\n", style="bright_green")
     
-    content.append("  # Academic conferences\n", style="white")
-    content.append("  python onefilellm.py --alias-add neurips-2024 \\\n", style="bright_green")
-    content.append("    \"neurips-2024-papers.txt,10.48550/neurips-proceedings,https://neurips.cc/virtual/2024\"\n\n", style="bright_green")
+    content.append("⚙️  ALIAS MANAGEMENT COMMANDS\n", style="bold bright_cyan")
+    content.append("  python onefilellm.py --alias-list              # Show all aliases\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-list-core         # Show core aliases only\n", style="bright_green")
+    content.append("  python onefilellm.py --alias-remove old-alias  # Remove user alias\n", style="bright_green")
+    content.append("  cat ~/.onefilellm_aliases/aliases.json         # View raw JSON\n\n", style="bright_green")
     
-    content.append("DYNAMIC ALIAS WORKFLOWS\n", style="bold bright_cyan")
-    content.append("  # Use aliases in complex pipelines\n", style="white")
-    content.append("  python onefilellm.py ai-research security-research | \\\n", style="bright_green")
-    content.append("    llm -m claude-3-haiku \"Identify AI security implications\" | \\\n", style="bright_green")
-    content.append("    llm -m claude-3-opus \"Generate security framework\"\n", style="bright_green")
+    content.append("🚀 ADVANCED PIPELINE WORKFLOWS\n", style="bold bright_cyan")
+    content.append("  # Research analysis pipeline\n", style="white")
+    content.append("  python onefilellm.py ai-research security-stack | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract security implications of AI systems\" | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-sonnet \"Identify vulnerabilities and mitigation strategies\" | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-opus \"Generate comprehensive security framework\"\n\n", style="bright_green")
+    
+    content.append("  # Market research synthesis\n", style="white")
+    content.append("  python onefilellm.py fintech-apis ecommerce-stack modern-web | \\\n", style="bright_green")
+    content.append("    llm -m gpt-4o \"Analyze market trends and technical integration patterns\" | \\\n", style="bright_green")
+    content.append("    tee market_analysis.md | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-opus \"Generate business strategy recommendations\"\n", style="bright_green")
     
     console.print(Panel(content, border_style="bright_blue", padding=(1, 2)))
 
@@ -2211,30 +2321,137 @@ def show_help_crawling():
     console = Console()
     
     content = Text()
-    content.append("WEB CRAWLING\n", style="bold bright_green")
-    content.append("Advanced async crawler with readability extraction\n\n", style="bright_cyan")
+    content.append("ADVANCED WEB CRAWLING\n", style="bold bright_green")
+    content.append("Async crawler with readability extraction and smart filtering\n\n", style="bright_cyan")
     
-    content.append("BASIC OPTIONS\n", style="bold bright_cyan")
-    content.append("  --crawl-max-depth 4          Maximum crawl depth\n", style="white")
-    content.append("  --crawl-max-pages 500        Page limit\n", style="white")
-    content.append("  --crawl-delay 0.1            Delay between requests\n", style="white")
-    content.append("  --crawl-concurrency 3        Concurrent requests\n\n", style="white")
+    content.append("🌐 DOCUMENTATION CRAWLING\n", style="bold bright_cyan")
+    content.append("  # Python documentation (comprehensive)\n", style="white")
+    content.append("  python onefilellm.py https://docs.python.org/3/ \\\n", style="bright_green")
+    content.append("    --crawl-max-depth 4 --crawl-max-pages 800 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/(tutorial|library|reference)/\" \\\n", style="bright_green")
+    content.append("    --crawl-exclude-pattern \".*/(whatsnew|faq)/\" \\\n", style="bright_green")
+    content.append("    --crawl-delay 0.2\n\n", style="bright_green")
     
-    content.append("FILTERING\n", style="bold bright_cyan")
-    content.append("  --crawl-include-pattern \".*/(docs|api)/\"\n", style="bright_green")
-    content.append("  --crawl-exclude-pattern \".*/(old|archive)/\"\n", style="bright_green")
-    content.append("  --crawl-restrict-path        Stay under start URL path\n\n", style="white")
-    
-    content.append("CONTENT OPTIONS\n", style="bold bright_cyan")
-    content.append("  --crawl-include-code         Include code blocks\n", style="white")
-    content.append("  --crawl-include-images       Include image URLs\n", style="white")
-    content.append("  --crawl-include-pdfs         Process PDF files\n", style="white")
-    content.append("  --crawl-no-clean-html        Disable readability\n\n", style="white")
-    
-    content.append("EXAMPLES\n", style="bold bright_cyan")
+    content.append("  # Django documentation (targeted sections)\n", style="white")
     content.append("  python onefilellm.py https://docs.djangoproject.com/ \\\n", style="bright_green")
-    content.append("    --crawl-max-depth 4 --crawl-max-pages 500 \\\n", style="bright_green")
-    content.append("    --crawl-include-pattern \".*/(tutorial|topics)/\"\n", style="bright_green")
+    content.append("    --crawl-max-depth 3 --crawl-max-pages 300 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/(topics|ref|howto)/\" \\\n", style="bright_green")
+    content.append("    --crawl-restrict-path --crawl-include-code\n\n", style="bright_green")
+    
+    content.append("  # React documentation (complete ecosystem)\n", style="white")
+    content.append("  python onefilellm.py https://react.dev/ \\\n", style="bright_green")
+    content.append("    --crawl-max-depth 5 --crawl-max-pages 200 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/(learn|reference|community)/\" \\\n", style="bright_green")
+    content.append("    --crawl-include-code --crawl-concurrency 2\n\n", style="bright_green")
+    
+    content.append("🏢 ENTERPRISE API DOCUMENTATION\n", style="bold bright_cyan")
+    content.append("  # AWS documentation (specific services)\n", style="white")
+    content.append("  python onefilellm.py https://docs.aws.amazon.com/ec2/ \\\n", style="bright_green")
+    content.append("    --crawl-max-depth 3 --crawl-max-pages 500 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/(UserGuide|APIReference)/\" \\\n", style="bright_green")
+    content.append("    --crawl-exclude-pattern \".*/(troubleshooting|release-notes)/\" \\\n", style="bright_green")
+    content.append("    --crawl-respect-robots --crawl-delay 0.5\n\n", style="bright_green")
+    
+    content.append("  # Kubernetes documentation (comprehensive)\n", style="white")
+    content.append("  python onefilellm.py https://kubernetes.io/docs/ \\\n", style="bright_green")
+    content.append("    --crawl-max-depth 4 --crawl-max-pages 600 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/(concepts|tasks|tutorials)/\" \\\n", style="bright_green")
+    content.append("    --crawl-include-code --crawl-include-pdfs\n\n", style="bright_green")
+    
+    content.append("  # Stripe API documentation\n", style="white")
+    content.append("  python onefilellm.py https://docs.stripe.com/ \\\n", style="bright_green")
+    content.append("    --crawl-max-depth 3 --crawl-max-pages 400 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/(api|payments|connect)/\" \\\n", style="bright_green")
+    content.append("    --crawl-include-code --crawl-delay 0.3\n\n", style="bright_green")
+    
+    content.append("🎓 ACADEMIC AND RESEARCH SITES\n", style="bold bright_cyan")
+    content.append("  # arXiv category exploration\n", style="white")
+    content.append("  python onefilellm.py https://arxiv.org/list/cs.AI/recent \\\n", style="bright_green")
+    content.append("    --crawl-max-depth 2 --crawl-max-pages 100 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/(abs|pdf)/\" \\\n", style="bright_green")
+    content.append("    --crawl-include-pdfs --crawl-delay 1.0\n\n", style="bright_green")
+    
+    content.append("  # University research pages\n", style="white")
+    content.append("  python onefilellm.py https://ai.stanford.edu/ \\\n", style="bright_green")
+    content.append("    --crawl-max-depth 3 --crawl-max-pages 150 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/(research|publications|projects)/\" \\\n", style="bright_green")
+    content.append("    --crawl-include-pdfs --crawl-respect-robots\n\n", style="bright_green")
+    
+    content.append("📰 NEWS AND BLOG SITES\n", style="bold bright_cyan")
+    content.append("  # Hacker News discussions\n", style="white")
+    content.append("  python onefilellm.py https://news.ycombinator.com/ \\\n", style="bright_green")
+    content.append("    --crawl-max-depth 2 --crawl-max-pages 50 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/item\\?id=[0-9]+\" \\\n", style="bright_green")
+    content.append("    --crawl-delay 2.0 --crawl-respect-robots\n\n", style="bright_green")
+    
+    content.append("  # Medium publications\n", style="white")
+    content.append("  python onefilellm.py https://towardsdatascience.com/ \\\n", style="bright_green")
+    content.append("    --crawl-max-depth 2 --crawl-max-pages 100 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/@[^/]+/[^/]+\" \\\n", style="bright_green")
+    content.append("    --crawl-exclude-pattern \".*/tag/\" --crawl-delay 1.0\n\n", style="bright_green")
+    
+    content.append("🛠️ ADVANCED FILTERING PATTERNS\n", style="bold bright_cyan")
+    content.append("  # Include only specific file types\n", style="white")
+    content.append("  --crawl-include-pattern \".*\\.(html|md|rst|txt)$\"\n", style="bright_green")
+    content.append("  --crawl-exclude-pattern \".*\\.(css|js|png|jpg|gif)$\"\n\n", style="bright_green")
+    
+    content.append("  # Focus on documentation sections\n", style="white")
+    content.append("  --crawl-include-pattern \".*/(docs?|api|guide|tutorial|manual)/\"\n", style="bright_green")
+    content.append("  --crawl-exclude-pattern \".*/(blog|news|press|about)/\"\n\n", style="bright_green")
+    
+    content.append("  # Version-specific documentation\n", style="white")
+    content.append("  --crawl-include-pattern \".*/v[0-9]+\\.[0-9]+/\"\n", style="bright_green")
+    content.append("  --crawl-exclude-pattern \".*/v[0-1]\\.[0-9]+/\"  # Exclude old versions\n\n", style="bright_green")
+    
+    content.append("⚡ PERFORMANCE OPTIMIZATION\n", style="bold bright_cyan")
+    content.append("  # High-speed crawling (use carefully)\n", style="white")
+    content.append("  --crawl-concurrency 8 --crawl-delay 0.1 --crawl-timeout 10\n\n", style="bright_green")
+    
+    content.append("  # Respectful crawling (recommended)\n", style="white")
+    content.append("  --crawl-concurrency 2 --crawl-delay 1.0 --crawl-respect-robots\n\n", style="bright_green")
+    
+    content.append("  # Large-scale documentation (enterprise)\n", style="white")
+    content.append("  --crawl-max-pages 2000 --crawl-max-depth 6 --crawl-concurrency 4\n\n", style="bright_green")
+    
+    content.append("🎯 CONTENT EXTRACTION OPTIONS\n", style="bold bright_cyan")
+    content.append("  --crawl-include-code         Extract code blocks and snippets\n", style="white")
+    content.append("  --crawl-no-include-code      Skip code extraction\n", style="white")
+    content.append("  --crawl-include-images       Include image URLs and alt text\n", style="white")
+    content.append("  --crawl-include-pdfs         Download and process PDF files\n", style="white")
+    content.append("  --crawl-extract-headings     Extract heading structure\n", style="white")
+    content.append("  --crawl-clean-html           Apply readability extraction\n", style="white")
+    content.append("  --crawl-no-strip-js          Keep JavaScript content\n", style="white")
+    content.append("  --crawl-no-strip-css         Keep CSS content\n\n", style="white")
+    
+    content.append("🔒 COMPLIANCE AND ETHICS\n", style="bold bright_cyan")
+    content.append("  # Always respect robots.txt for public sites\n", style="white")
+    content.append("  --crawl-respect-robots\n\n", style="bright_green")
+    
+    content.append("  # Restrict to specific path hierarchies\n", style="white")
+    content.append("  --crawl-restrict-path        # Stay under initial URL path\n\n", style="bright_green")
+    
+    content.append("  # Use appropriate delays for server load\n", style="white")
+    content.append("  --crawl-delay 0.5            # 500ms between requests (recommended)\n", style="bright_green")
+    content.append("  --crawl-delay 2.0            # 2s for busy/slow sites\n\n", style="bright_green")
+    
+    content.append("📊 REAL-WORLD CRAWLING EXAMPLES\n", style="bold bright_cyan")
+    content.append("  # Complete FastAPI ecosystem\n", style="white")
+    content.append("  python onefilellm.py https://fastapi.tiangolo.com/ \\\n", style="bright_green")
+    content.append("    --crawl-max-depth 4 --crawl-max-pages 400 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/(tutorial|advanced|deployment)/\" \\\n", style="bright_green")
+    content.append("    --crawl-include-code --crawl-concurrency 3\n\n", style="bright_green")
+    
+    content.append("  # Comprehensive TensorFlow documentation\n", style="white")
+    content.append("  python onefilellm.py https://www.tensorflow.org/guide/ \\\n", style="bright_green")
+    content.append("    --crawl-max-depth 3 --crawl-max-pages 600 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/(guide|tutorials|api_docs)/\" \\\n", style="bright_green")
+    content.append("    --crawl-include-code --crawl-delay 0.3\n\n", style="bright_green")
+    
+    content.append("  # GitHub organization exploration\n", style="white")
+    content.append("  python onefilellm.py https://github.com/microsoft \\\n", style="bright_green")
+    content.append("    --crawl-max-depth 2 --crawl-max-pages 200 \\\n", style="bright_green")
+    content.append("    --crawl-include-pattern \".*/microsoft/[^/]+/?$\" \\\n", style="bright_green")
+    content.append("    --crawl-delay 0.5\n", style="bright_green")
     
     console.print(Panel(content, border_style="bright_blue", padding=(1, 2)))
 
@@ -2244,46 +2461,156 @@ def show_help_pipelines():
     console = Console()
     
     content = Text()
-    content.append("PIPELINE INTEGRATION\n", style="bold bright_green")
-    content.append("Complex workflows with 'llm' tool and visual analysis\n\n", style="bright_cyan")
+    content.append("ADVANCED PIPELINE INTEGRATION\n", style="bold bright_green")
+    content.append("Complex workflows with Simon Willison's 'llm' tool and automation\n\n", style="bright_cyan")
     
-    content.append("VISUAL CONTENT ASSESSMENT\n", style="bold bright_cyan")
-    content.append("  python onefilellm.py https://docs.example.com | \\\n", style="bright_green")
-    content.append("    llm -m gpt-4-vision \"Extract visual elements and diagrams\" | \\\n", style="bright_green")
-    content.append("    llm -m claude-3-sonnet \"Analyze layout patterns\" | \\\n", style="bright_green")
-    content.append("    jq -r '.visual_elements[]' > elements.json\n\n", style="bright_green")
+    content.append("🔬 RESEARCH ANALYSIS PIPELINES\n", style="bold bright_cyan")
+    content.append("  # Multi-stage academic paper analysis\n", style="white")
+    content.append("  python onefilellm.py ai-research protein-folding | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract key methodologies and datasets\" | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-sonnet \"Identify experimental approaches and results\" | \\\n", style="bright_green")
+    content.append("    llm -m gpt-4o \"Compare methodologies across papers\" | \\\n", style="bright_green")
+    content.append("    tee methodology_analysis.md | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-opus \"Generate novel research directions\" > research_proposals.md\n\n", style="bright_green")
     
-    content.append("ENTITY RECOGNITION PIPELINE\n", style="bold bright_cyan")
-    content.append("  python onefilellm.py research-papers-alias | \\\n", style="bright_green")
-    content.append("    llm -m claude-3-haiku \"Extract named entities: people, orgs, locations\" | \\\n", style="bright_green")
-    content.append("    grep -E '(PERSON|ORG|LOC):' | \\\n", style="bright_green")
-    content.append("    sort | uniq -c | \\\n", style="bright_green")
-    content.append("    llm -m gpt-4o-mini \"Analyze entity frequency patterns\"\n\n", style="bright_green")
+    content.append("  # Comprehensive literature review synthesis\n", style="white")
+    content.append("  python onefilellm.py \\\n", style="bright_green")
+    content.append("    \"arxiv:2103.00020\" \"arxiv:2005.14165\" \"10.1038/s41586-021-03819-2\" \\\n", style="bright_green")
+    content.append("    https://github.com/huggingface/transformers \\\n", style="bright_green")
+    content.append("    https://openai.com/research | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract citations and build reference network\" | \\\n", style="bright_green")
+    content.append("    python -c \"import re; [print(match.group()) for match in re.finditer(r'\\d{4}\\.\\d{5}|10\\.\\d+/[^\\s]+', open('/dev/stdin').read())]\" | \\\n", style="bright_green")
+    content.append("    sort | uniq | head -20 | \\\n", style="bright_green")
+    content.append("    xargs -I {} python onefilellm.py {} | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-opus \"Synthesize comprehensive literature review\"\n\n", style="bright_green")
     
-    content.append("CONTENT FILTERING WORKFLOWS\n", style="bold bright_cyan")
-    content.append("  python onefilellm.py large-codebase-alias | \\\n", style="bright_green")
-    content.append("    llm -m claude-3-haiku \"Extract security-related code only\" | \\\n", style="bright_green")
-    content.append("    grep -v 'test\\|mock\\|example' | \\\n", style="bright_green")
-    content.append("    llm -m claude-3-sonnet \"Identify vulnerabilities\" | \\\n", style="bright_green")
-    content.append("    awk '/CRITICAL|HIGH/ {print}' | \\\n", style="bright_green")
-    content.append("    llm -m claude-3-opus \"Generate remediation plan\"\n\n", style="bright_green")
+    content.append("💼 BUSINESS INTELLIGENCE WORKFLOWS\n", style="bold bright_cyan")
+    content.append("  # Competitive analysis automation\n", style="white")
+    content.append("  python onefilellm.py \\\n", style="bright_green")
+    content.append("    https://github.com/competitor1/product \\\n", style="bright_green")
+    content.append("    https://github.com/competitor2/platform \\\n", style="bright_green")
+    content.append("    https://competitor1.com/docs/ \\\n", style="bright_green")
+    content.append("    https://competitor2.com/api/ | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract feature lists and capabilities\" | \\\n", style="bright_green")
+    content.append("    llm -m gpt-4o \"Compare features and identify gaps\" | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-sonnet \"Assess technical implementation approaches\" | \\\n", style="bright_green")
+    content.append("    tee competitive_analysis.md | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-opus \"Generate strategic recommendations\" > strategy.md\n\n", style="bright_green")
     
-    content.append("MULTI-MODEL ANALYSIS CHAIN\n", style="bold bright_cyan")
-    content.append("  python onefilellm.py github-issues-alias | \\\n", style="bright_green")
-    content.append("    llm -m claude-3-haiku \"Categorize by topic and sentiment\" | \\\n", style="bright_green")
-    content.append("    sed 's/NEGATIVE/🔴/g; s/POSITIVE/🟢/g' | \\\n", style="bright_green")
-    content.append("    llm -m gpt-4o \"Analyze patterns and trends\" | \\\n", style="bright_green")
-    content.append("    tee analysis.txt | \\\n", style="bright_green")
-    content.append("    llm -m claude-3-opus \"Generate executive summary\" > summary.md\n\n", style="bright_green")
+    content.append("  # Market trend analysis from multiple sources\n", style="white")
+    content.append("  python onefilellm.py fintech-apis ecommerce-stack \\\n", style="bright_green")
+    content.append("    https://news.ycombinator.com/item?id=38709319 \\\n", style="bright_green")
+    content.append("    https://techcrunch.com/category/fintech/ \\\n", style="bright_green")
+    content.append("    market_reports_q4_2024/ | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract market trends and growth metrics\" | \\\n", style="bright_green")
+    content.append("    grep -E '(growth|revenue|adoption|market share)' | \\\n", style="bright_green")
+    content.append("    llm -m gpt-4o \"Identify emerging patterns and opportunities\" | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-opus \"Generate investment thesis and market forecast\"\n\n", style="bright_green")
     
-    content.append("COMPLEX DATA TRANSFORMATION\n", style="bold bright_cyan")
-    content.append("  cat raw_docs.txt | \\\n", style="bright_green")
-    content.append("    python onefilellm.py - | \\\n", style="bright_green")
-    content.append("    llm -m claude-3-haiku \"Convert to structured JSON\" | \\\n", style="bright_green")
-    content.append("    jq '.[] | select(.confidence > 0.8)' | \\\n", style="bright_green")
-    content.append("    llm -m gpt-4o-mini \"Validate and clean data\" | \\\n", style="bright_green")
-    content.append("    python -c \"import json, sys; [print(json.dumps(item)) for item in json.load(sys.stdin)]\" | \\\n", style="bright_green")
-    content.append("    llm -m claude-3-sonnet \"Generate insights report\"\n", style="bright_green")
+    content.append("🔒 SECURITY RESEARCH AUTOMATION\n", style="bold bright_cyan")
+    content.append("  # Vulnerability assessment pipeline\n", style="white")
+    content.append("  python onefilellm.py security-stack \\\n", style="bright_green")
+    content.append("    https://github.com/target-org/main-product \\\n", style="bright_green")
+    content.append("    https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=target-product | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract security patterns and potential vulnerabilities\" | \\\n", style="bright_green")
+    content.append("    grep -E '(CRITICAL|HIGH|authentication|authorization|injection|xss)' | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-sonnet \"Categorize vulnerabilities by severity and type\" | \\\n", style="bright_green")
+    content.append("    awk '/CRITICAL/ {print \"🚨 \" $0} /HIGH/ {print \"⚠️ \" $0} /MEDIUM/ {print \"📝 \" $0}' | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-opus \"Generate comprehensive security assessment report\"\n\n", style="bright_green")
+    
+    content.append("  # Threat intelligence aggregation\n", style="white")
+    content.append("  python onefilellm.py \\\n", style="bright_green")
+    content.append("    https://github.com/MITRE/cti \\\n", style="bright_green")
+    content.append("    https://attack.mitre.org/ \\\n", style="bright_green")
+    content.append("    https://www.cisa.gov/known-exploited-vulnerabilities-catalog | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract IOCs and attack patterns\" | \\\n", style="bright_green")
+    content.append("    grep -E '(CVE-[0-9]{4}-[0-9]+|T[0-9]{4}|malware|threat actor)' | \\\n", style="bright_green")
+    content.append("    sort | uniq -c | sort -nr | \\\n", style="bright_green")
+    content.append("    llm -m gpt-4o \"Analyze threat landscape and attack trends\" | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-opus \"Generate threat intelligence briefing\"\n\n", style="bright_green")
+    
+    content.append("🏗️ TECHNICAL ARCHITECTURE ANALYSIS\n", style="bold bright_cyan")
+    content.append("  # Multi-framework comparison pipeline\n", style="white")
+    content.append("  python onefilellm.py modern-web k8s-ecosystem data-science | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract architectural patterns and design decisions\" | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-sonnet \"Identify scalability and performance considerations\" | \\\n", style="bright_green")
+    content.append("    llm -m gpt-4o \"Compare architectural tradeoffs and best practices\" | \\\n", style="bright_green")
+    content.append("    tee architecture_analysis.md | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-opus \"Design optimal technology stack recommendations\"\n\n", style="bright_green")
+    
+    content.append("  # API ecosystem integration analysis\n", style="white")
+    content.append("  python onefilellm.py \\\n", style="bright_green")
+    content.append("    https://docs.stripe.com/api \\\n", style="bright_green")
+    content.append("    https://developer.paypal.com/docs/api/ \\\n", style="bright_green")
+    content.append("    https://plaid.com/docs/api/ \\\n", style="bright_green")
+    content.append("    https://docs.aws.amazon.com/lambda/ | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract API endpoints, authentication, and data models\" | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-sonnet \"Identify integration patterns and compatibility\" | \\\n", style="bright_green")
+    content.append("    python -c \"import re; print('\\n'.join(set(re.findall(r'POST|GET|PUT|DELETE\\s+/[^\\s]+', open('/dev/stdin').read()))))\" | \\\n", style="bright_green")
+    content.append("    llm -m gpt-4o \"Design unified API integration strategy\"\n\n", style="bright_green")
+    
+    content.append("📊 DATA SCIENCE AND ML WORKFLOWS\n", style="bold bright_cyan")
+    content.append("  # Model architecture research synthesis\n", style="white")
+    content.append("  python onefilellm.py \\\n", style="bright_green")
+    content.append("    \"arxiv:1706.03762\" \"arxiv:2005.14165\" \"arxiv:2103.00020\" \\\n", style="bright_green")
+    content.append("    https://github.com/pytorch/pytorch \\\n", style="bright_green")
+    content.append("    https://github.com/tensorflow/tensorflow | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract model architectures and hyperparameters\" | \\\n", style="bright_green")
+    content.append("    grep -E '(layers|attention|embedding|learning_rate|batch_size)' | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-sonnet \"Compare model performance and efficiency\" | \\\n", style="bright_green")
+    content.append("    python -c \"import re; [print(f'{match.group()}: {len(re.findall(match.group(), open(\"/dev/stdin\").read()))}') for match in set(re.finditer(r'\\b\\d+[BMK]?\\b', open('/dev/stdin').read()))]\" | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-opus \"Design optimized model architecture recommendations\"\n\n", style="bright_green")
+    
+    content.append("  # Dataset and benchmark analysis\n", style="white")
+    content.append("  python onefilellm.py \\\n", style="bright_green")
+    content.append("    https://huggingface.co/datasets \\\n", style="bright_green")
+    content.append("    https://paperswithcode.com/datasets \\\n", style="bright_green")
+    content.append("    https://github.com/google-research/bert | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract dataset characteristics and benchmark results\" | \\\n", style="bright_green")
+    content.append("    grep -E '(accuracy|f1|rouge|bleu|perplexity|size|samples)' | \\\n", style="bright_green")
+    content.append("    awk '{print $0 | \"sort -nr\"}' | \\\n", style="bright_green")
+    content.append("    llm -m gpt-4o \"Identify optimal datasets and evaluation metrics\" | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-opus \"Generate ML experiment design recommendations\"\n\n", style="bright_green")
+    
+    content.append("🌍 CONTENT LOCALIZATION AND ANALYSIS\n", style="bold bright_cyan")
+    content.append("  # Multi-language documentation analysis\n", style="white")
+    content.append("  for lang in en es fr de zh; do \\\n", style="bright_green")
+    content.append("    python onefilellm.py https://docs.example.com/$lang/ | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract content structure and completeness for $lang\"; \\\n", style="bright_green")
+    content.append("  done | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-sonnet \"Compare documentation coverage across languages\" | \\\n", style="bright_green")
+    content.append("    llm -m gpt-4o \"Identify translation gaps and content strategy\"\n\n", style="bright_green")
+    
+    content.append("🔄 AUTOMATED CONTENT MONITORING\n", style="bold bright_cyan")
+    content.append("  # Daily research update pipeline (cron job)\n", style="white")
+    content.append("  #!/bin/bash\n", style="dim")
+    content.append("  # Add to crontab: 0 9 * * * /path/to/daily_research.sh\n", style="dim")
+    content.append("  python onefilellm.py \\\n", style="bright_green")
+    content.append("    https://arxiv.org/list/cs.AI/recent \\\n", style="bright_green")
+    content.append("    https://arxiv.org/list/cs.LG/recent | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract today's most significant papers\" | \\\n", style="bright_green")
+    content.append("    grep -E '(breakthrough|novel|state-of-the-art|significant)' | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-sonnet \"Summarize key developments\" | \\\n", style="bright_green")
+    content.append("    mail -s \"Daily AI Research Brief $(date)\" researcher@company.com\n\n", style="bright_green")
+    
+    content.append("📈 ADVANCED DATA PROCESSING\n", style="bold bright_cyan")
+    content.append("  # Real-time sentiment analysis pipeline\n", style="white")
+    content.append("  python onefilellm.py --clipboard | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract sentiment indicators and emotional markers\" | \\\n", style="bright_green")
+    content.append("    sed 's/POSITIVE/😊/g; s/NEGATIVE/😞/g; s/NEUTRAL/😐/g' | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-sonnet \"Quantify sentiment scores and confidence levels\" | \\\n", style="bright_green")
+    content.append("    python -c \"import json; data=input(); print(json.dumps({'sentiment': data, 'timestamp': __import__('datetime').datetime.now().isoformat()}))\" | \\\n", style="bright_green")
+    content.append("    jq -r '.sentiment + \" (\" + .timestamp + \")\"' | \\\n", style="bright_green")
+    content.append("    tee -a sentiment_log.jsonl\n\n", style="bright_green")
+    
+    content.append("  # Complex JSON data transformation\n", style="white")
+    content.append("  curl -s https://api.github.com/repos/microsoft/vscode/issues | \\\n", style="bright_green")
+    content.append("    python onefilellm.py - --format json | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-haiku \"Extract issue patterns and categorize by priority\" | \\\n", style="bright_green")
+    content.append("    jq -r '.[] | select(.state == \"open\") | {title: .title, labels: [.labels[].name], created: .created_at}' | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-sonnet \"Analyze issue trends and suggest improvements\" | \\\n", style="bright_green")
+    content.append("    python -c \"import sys,json; [print(json.dumps(line)) for line in sys.stdin if 'priority' in line.lower()]\" | \\\n", style="bright_green")
+    content.append("    llm -m claude-3-opus \"Generate project health assessment\"\n", style="bright_green")
     
     console.print(Panel(content, border_style="bright_blue", padding=(1, 2)))
 
@@ -2386,9 +2713,9 @@ def show_help_config():
     content.append("  # Set ENABLE_COMPRESSION_AND_NLTK=True in code\n\n", style="white")
     
     content.append("ALIAS STORAGE\n", style="bold bright_cyan")
-    content.append("  Aliases stored in: ~/.onefilellm_aliases/\n", style="white")
-    content.append("  Each alias is a separate file\n", style="white")
-    content.append("  Format: one source per line\n", style="white")
+    content.append("  Aliases stored in: ~/.onefilellm_aliases/aliases.json\n", style="white")
+    content.append("  JSON format with user aliases overriding core aliases\n", style="white")
+    content.append("  Supports placeholder substitution with {} tokens\n", style="white")
     
     console.print(Panel(content, border_style="bright_blue", padding=(1, 2)))
 
@@ -2422,70 +2749,204 @@ def create_argument_parser():
         description="OneFileLLM - Content Aggregator for LLMs",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
+🚀 QUICK START EXAMPLES:
 
-BASIC USAGE:
+📁 LOCAL FILES AND DIRECTORIES:
+  python onefilellm.py research_paper.pdf config.yaml src/
+  python onefilellm.py *.py requirements.txt docs/ README.md
+  python onefilellm.py notebook.ipynb --format json
+  python onefilellm.py large_dataset.csv logs/ --format text
+
+🐙 GITHUB REPOSITORIES AND ISSUES:
   python onefilellm.py https://github.com/microsoft/vscode
-  python onefilellm.py file1.txt file2.pdf local_dir/
-  python onefilellm.py --clipboard
-  cat data.txt | python onefilellm.py -
+  python onefilellm.py https://github.com/openai/whisper/tree/main/whisper
+  python onefilellm.py https://github.com/microsoft/vscode/pull/12345
+  python onefilellm.py https://github.com/kubernetes/kubernetes/issues
 
-MASSIVE CONTEXT AGGREGATION (800K-1M+ tokens):
+🌐 WEB DOCUMENTATION AND APIS:
+  python onefilellm.py https://docs.python.org/3/tutorial/
+  python onefilellm.py https://react.dev/learn/thinking-in-react
+  python onefilellm.py https://docs.stripe.com/api
+  python onefilellm.py https://kubernetes.io/docs/concepts/
+
+📺 MULTIMEDIA AND ACADEMIC SOURCES:
+  python onefilellm.py https://www.youtube.com/watch?v=dQw4w9WgXcQ
+  python onefilellm.py https://arxiv.org/abs/2103.00020
+  python onefilellm.py arxiv:1706.03762 PMID:35177773
+  python onefilellm.py doi:10.1038/s41586-021-03819-2
+
+⌨️  INPUT STREAMS:
+  python onefilellm.py --clipboard --format markdown
+  cat large_dataset.json | python onefilellm.py - --format json
+  curl -s https://api.github.com/repos/microsoft/vscode | python onefilellm.py -
+  echo 'Quick analysis task' | python onefilellm.py -
+
+🏷️  ALIAS SYSTEM 2.0:
+  # Create simple and complex aliases
+  python onefilellm.py --alias-add mcp "https://github.com/anthropics/mcp"
+  python onefilellm.py --alias-add modern-web \\
+    "https://github.com/facebook/react https://reactjs.org/docs/ https://github.com/vercel/next.js"
+  
+  # Dynamic placeholders for search and parameterization
+  python onefilellm.py --alias-add gh-search "https://github.com/search?q={}"
+  python onefilellm.py --alias-add gh-user "https://github.com/{}"
+  python onefilellm.py --alias-add arxiv-search "https://arxiv.org/search/?query={}"
+  
+  # Use placeholders dynamically
+  python onefilellm.py gh-search "machine learning transformers"
+  python onefilellm.py gh-user "microsoft"
+  python onefilellm.py arxiv-search "attention mechanisms"
+  
+  # Complex ecosystem aliases (300K-900K+ tokens)
+  python onefilellm.py --alias-add ai-research \\
+    "arxiv:1706.03762 https://github.com/huggingface/transformers https://pytorch.org/docs"
+  python onefilellm.py --alias-add k8s-ecosystem \\
+    "https://github.com/kubernetes/kubernetes https://kubernetes.io/docs/ https://github.com/istio/istio"
+  
+  # Combine multiple aliases with live sources
+  python onefilellm.py ai-research k8s-ecosystem modern-web \\
+    conference_notes.pdf local_experiments/
+
+📊 MASSIVE CONTEXT AGGREGATION (800K-1.2M+ tokens):
+  # Complete technology ecosystem analysis
   python onefilellm.py \\
     https://github.com/kubernetes/kubernetes \\
     https://github.com/kubernetes/enhancements \\
     https://kubernetes.io/docs/ \\
-    https://github.com/kubernetes/community \\
-    https://www.youtube.com/watch?v=PH-2FfFD2PU \\
-    "10.1145/3267809.3267823"
+    https://github.com/istio/istio \\
+    https://github.com/prometheus/prometheus \\
+    https://istio.io/latest/docs/ \\
+    https://prometheus.io/docs/ \\
+    https://www.youtube.com/watch?v=kCc8FmEb1nY \\
+    cloud_native_conference_2024.pdf
 
-ALIAS WORKFLOWS:
-  # Create aliases for complex workflows
-  python onefilellm.py --alias-add k8s-ecosystem \\
-    "https://github.com/kubernetes/kubernetes,https://kubernetes.io/docs/"
-  
-  python onefilellm.py --alias-add ml-papers \\
-    "10.1706.03762,10.1038/s41586-021-03819-2,arxiv:2005.14165"
-  
-  # Combine multiple aliases + live sources
-  python onefilellm.py k8s-ecosystem ml-papers \\
-    https://github.com/openai/whisper \\
-    https://fastapi.tiangolo.com/ \\
-    local_research_notes.md
-
-INTEGRATION WITH 'llm' TOOL:
-  # Multi-repository ecosystem analysis
+  # Academic research synthesis
   python onefilellm.py \\
-    https://github.com/facebook/react \\
-    https://github.com/vercel/next.js \\
-    https://github.com/tailwindlabs/tailwindcss | \\
-    llm -m claude-3-opus "Compare architectures and recommend stack"
+    "arxiv:2103.00020" "arxiv:2005.14165" "10.1038/s41586-021-03819-2" \\
+    https://github.com/deepmind/alphafold \\
+    https://github.com/huggingface/transformers \\
+    https://alphafold.ebi.ac.uk/help \\
+    https://huggingface.co/docs \\
+    protein_folding_breakthrough_2024.pdf
 
-  # Research synthesis pipeline
-  python onefilellm.py research-papers-alias | \\
-    llm -m claude-3-haiku "Extract methodologies" | \\
-    llm -m claude-3-sonnet "Identify patterns" | \\
-    llm -m claude-3-opus "Generate novel insights"
+🕷️  ADVANCED WEB CRAWLING:
+  # Comprehensive documentation sites
+  python onefilellm.py https://docs.python.org/3/ \\
+    --crawl-max-depth 4 --crawl-max-pages 800 \\
+    --crawl-include-pattern ".*/(tutorial|library|reference)/" \\
+    --crawl-exclude-pattern ".*/(whatsnew|faq)/"
+  
+  # Enterprise API documentation
+  python onefilellm.py https://docs.aws.amazon.com/ec2/ \\
+    --crawl-max-depth 3 --crawl-max-pages 500 \\
+    --crawl-include-pattern ".*/(UserGuide|APIReference)/" \\
+    --crawl-respect-robots --crawl-delay 0.5
+  
+  # Academic and research sites
+  python onefilellm.py https://arxiv.org/list/cs.AI/recent \\
+    --crawl-max-depth 2 --crawl-max-pages 100 \\
+    --crawl-include-pattern ".*/(abs|pdf)/" \\
+    --crawl-include-pdfs --crawl-delay 1.0
 
-ADVANCED WEB CRAWLING:
-  python onefilellm.py https://docs.djangoproject.com/ \\
-    --crawl-max-depth 4 --crawl-max-pages 500 \\
-    --crawl-include-pattern ".*/(tutorial|topics|ref)/" \\
-    --crawl-delay 0.1 --crawl-concurrency 5
-
-COMPREHENSIVE ANALYSIS WORKFLOWS:
-  # Full project ecosystem (1M+ tokens)
+🔄 INTEGRATION PIPELINES WITH 'llm' TOOL:
+  # Multi-stage research analysis
+  python onefilellm.py ai-research protein-folding | \\
+    llm -m claude-3-haiku "Extract key methodologies and datasets" | \\
+    llm -m claude-3-sonnet "Identify experimental approaches" | \\
+    llm -m gpt-4o "Compare methodologies across papers" | \\
+    llm -m claude-3-opus "Generate novel research directions"
+  
+  # Competitive analysis automation
   python onefilellm.py \\
-    https://github.com/microsoft/TypeScript \\
-    https://github.com/microsoft/TypeScript/issues \\
-    https://www.typescriptlang.org/docs/ \\
-    https://github.com/DefinitelyTyped/DefinitelyTyped \\
-    https://github.com/microsoft/TypeScript/wiki \\
-    "typescript ecosystem papers" \\
-    typescript-discussion-forums.txt
+    https://github.com/competitor1/product \\
+    https://competitor1.com/docs/ \\
+    https://competitor2.com/api/ | \\
+    llm -m claude-3-haiku "Extract features and capabilities" | \\
+    llm -m gpt-4o "Compare and identify gaps" | \\
+    llm -m claude-3-opus "Generate strategic recommendations"
+  
+  # Security research automation
+  python onefilellm.py security-stack \\
+    https://github.com/target-org/main-product | \\
+    llm -m claude-3-haiku "Extract security patterns" | \\
+    llm -m claude-3-sonnet "Categorize vulnerabilities" | \\
+    llm -m claude-3-opus "Generate security assessment"
+  
+  # Real-time sentiment analysis
+  python onefilellm.py --clipboard | \\
+    llm -m claude-3-haiku "Extract sentiment indicators" | \\
+    llm -m claude-3-sonnet "Quantify sentiment scores" | \\
+    jq -r '.sentiment + " (" + .timestamp + ")"'
 
-For detailed help: python onefilellm.py --help-topic <topic>
-Topics: basic, aliases, crawling, pipelines, examples, config
+💼 BUSINESS AND ENTERPRISE WORKFLOWS:
+  # Market research and competitive intelligence
+  python onefilellm.py fintech-apis ecommerce-stack \\
+    https://news.ycombinator.com/item?id=38709319 \\
+    market_reports_q4_2024/ | \\
+    llm -m claude-3-haiku "Extract market trends" | \\
+    llm -m gpt-4o "Identify opportunities" | \\
+    llm -m claude-3-opus "Generate investment thesis"
+  
+  # Technical architecture analysis
+  python onefilellm.py modern-web k8s-ecosystem data-science | \\
+    llm -m claude-3-haiku "Extract architectural patterns" | \\
+    llm -m claude-3-sonnet "Identify scalability considerations" | \\
+    llm -m claude-3-opus "Design optimal tech stack"
+
+🧬 ACADEMIC AND RESEARCH WORKFLOWS:
+  # Literature review with citation analysis
+  python onefilellm.py \\
+    "arxiv:2103.00020" "arxiv:2005.14165" "10.1038/s41586-021-03819-2" | \\
+    llm -m claude-3-haiku "Extract citations and build reference network" | \\
+    grep -E "\\d{4}\\.\\d{5}|10\\.\\d+/" | sort | uniq | head -20 | \\
+    xargs -I {} python onefilellm.py {} | \\
+    llm -m claude-3-opus "Synthesize comprehensive literature review"
+  
+  # Multi-domain research synthesis
+  python onefilellm.py ai-research protein-folding climate-research \\
+    https://www.youtube.com/watch?v=kCc8FmEb1nY \\
+    interdisciplinary_notes.md | \\
+    llm -m claude-3-opus "Identify cross-domain insights and novel approaches"
+
+🔄 AUTOMATION AND MONITORING:
+  # Daily research monitoring (cron job)
+  0 9 * * * python onefilellm.py \\
+    https://arxiv.org/list/cs.AI/recent \\
+    https://arxiv.org/list/cs.LG/recent | \\
+    llm -m claude-3-haiku "Extract significant papers" | \\
+    llm -m claude-3-sonnet "Summarize key developments" | \\
+    mail -s "Daily AI Research Brief" researcher@company.com
+
+💻 FORMAT AND INPUT OPTIONS:
+  python onefilellm.py data.txt --format markdown
+  python onefilellm.py config.yaml --format yaml  
+  python onefilellm.py response.json --format json
+  python onefilellm.py notebook.ipynb --format text
+  python onefilellm.py api_docs.html --format html
+
+⚙️  ALIAS MANAGEMENT:
+  python onefilellm.py --alias-list              # Show all aliases
+  python onefilellm.py --alias-list-core         # Show core aliases only
+  python onefilellm.py --alias-remove old-alias  # Remove user alias
+  cat ~/.onefilellm_aliases/aliases.json         # View raw JSON
+
+📖 COMPREHENSIVE HELP SYSTEM:
+  python onefilellm.py --help-topic basic      # Input sources and basic usage
+  python onefilellm.py --help-topic aliases    # Alias system with real examples
+  python onefilellm.py --help-topic crawling   # Web crawler patterns and ethics
+  python onefilellm.py --help-topic pipelines  # 'llm' tool integration workflows
+  python onefilellm.py --help-topic examples   # Advanced usage patterns
+  python onefilellm.py --help-topic config     # Environment and configuration
+
+🎯 REAL-WORLD USE CASES:
+  • Technology due diligence and competitive analysis
+  • Academic literature review and research synthesis
+  • Security vulnerability assessment and threat intelligence
+  • API integration planning and architecture analysis
+  • Market research and business intelligence
+  • Multi-language documentation analysis
+  • Content aggregation for LLM fine-tuning datasets
+  • Automated research monitoring and alerting
 """
     )
     
