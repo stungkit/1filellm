@@ -600,6 +600,447 @@ class TestAliasSystem2(unittest.TestCase):
         restored_command = manager.get_command("ofl_repo")
         self.assertEqual(restored_command, core_command)
 
+    def test_alias_listing_functionality(self):
+        """Test alias listing with different options"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Add some user aliases
+        manager.add_or_update_alias("user_alias1", "https://example1.com")
+        manager.add_or_update_alias("user_alias2", "https://example2.com")
+        
+        # Test listing all aliases
+        all_list = manager.list_aliases_formatted(list_user=True, list_core=True)
+        self.assertIn("user_alias1", all_list)
+        self.assertIn("ofl_repo", all_list)  # Core alias
+        
+        # Test listing only user aliases
+        user_list = manager.list_aliases_formatted(list_user=True, list_core=False)
+        self.assertIn("user_alias1", user_list)
+        self.assertNotIn("ofl_repo", user_list)
+        
+        # Test listing only core aliases
+        core_list = manager.list_aliases_formatted(list_user=False, list_core=True)
+        self.assertNotIn("user_alias1", core_list)
+        self.assertIn("ofl_repo", core_list)
+
+
+class TestAdvancedAliasFeatures(unittest.TestCase):
+    """Test advanced alias functionality including placeholders and complex scenarios"""
+    
+    def setUp(self):
+        self.temp_alias_dir = tempfile.mkdtemp()
+        self.alias_file = Path(self.temp_alias_dir) / "aliases.json"
+        
+        # Mock the alias configuration directory
+        self.config_dir_patcher = patch('onefilellm.ALIAS_CONFIG_DIR', Path(self.temp_alias_dir))
+        self.config_dir_patcher.start()
+        
+        # Mock the user aliases path
+        self.aliases_path_patcher = patch('onefilellm.USER_ALIASES_PATH', self.alias_file)
+        self.aliases_path_patcher.start()
+        
+    def tearDown(self):
+        self.config_dir_patcher.stop()
+        self.aliases_path_patcher.stop()
+        shutil.rmtree(self.temp_alias_dir)
+
+    def test_placeholder_functionality(self):
+        """Test dynamic placeholder substitution in aliases"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Test core alias with placeholder
+        gh_search_command = manager.get_command("gh_search")
+        self.assertIn("{}", gh_search_command)
+        self.assertIn("github.com/search", gh_search_command)
+        
+        # Test adding custom placeholder alias
+        manager.add_or_update_alias("custom_search", "https://example.com/search?q={}")
+        custom_command = manager.get_command("custom_search")
+        self.assertEqual(custom_command, "https://example.com/search?q={}")
+        
+        # Test multi-source alias with placeholder
+        manager.add_or_update_alias("multi_search", "https://site1.com/search?q={} https://site2.com/find?term={}")
+        multi_command = manager.get_command("multi_search")
+        self.assertIn("site1.com", multi_command)
+        self.assertIn("site2.com", multi_command)
+        self.assertEqual(multi_command.count("{}"), 2)
+
+    def test_complex_multi_source_aliases(self):
+        """Test complex aliases with multiple sources"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Test comprehensive ecosystem alias
+        ecosystem_sources = " ".join([
+            "https://github.com/facebook/react",
+            "https://github.com/vercel/next.js", 
+            "https://reactjs.org/docs/",
+            "https://nextjs.org/docs",
+            "local_notes.md"
+        ])
+        
+        manager.add_or_update_alias("react_ecosystem", ecosystem_sources)
+        command = manager.get_command("react_ecosystem")
+        
+        # Verify all sources are present
+        self.assertIn("github.com/facebook/react", command)
+        self.assertIn("github.com/vercel/next.js", command)
+        self.assertIn("reactjs.org/docs", command)
+        self.assertIn("nextjs.org/docs", command)
+        self.assertIn("local_notes.md", command)
+        
+        # Test splitting the command
+        sources = command.split()
+        self.assertEqual(len(sources), 5)
+
+    def test_alias_with_mixed_source_types(self):
+        """Test aliases containing different types of sources"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Mixed sources: GitHub, ArXiv, DOI, YouTube, local files
+        mixed_sources = " ".join([
+            "https://github.com/openai/whisper",
+            "arxiv:1706.03762",
+            "10.1038/s41586-021-03819-2",
+            "https://www.youtube.com/watch?v=example",
+            "research_notes.pdf",
+            "https://docs.example.com/"
+        ])
+        
+        manager.add_or_update_alias("ai_research", mixed_sources)
+        command = manager.get_command("ai_research")
+        
+        # Verify all source types are preserved
+        self.assertIn("github.com/openai/whisper", command)
+        self.assertIn("arxiv:1706.03762", command)
+        self.assertIn("10.1038/s41586-021-03819-2", command)
+        self.assertIn("youtube.com", command)
+        self.assertIn("research_notes.pdf", command)
+        self.assertIn("docs.example.com", command)
+
+    def test_alias_expansion_simulation(self):
+        """Test simulating the main() alias expansion logic"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        import shlex
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Add test aliases
+        manager.add_or_update_alias("test_simple", "https://example.com")
+        manager.add_or_update_alias("test_placeholder", "https://search.com?q={}")
+        manager.add_or_update_alias("test_multi", "https://site1.com https://site2.com")
+        
+        # Test simple alias expansion
+        original_argv = ["onefilellm.py", "test_simple"]
+        alias_name = original_argv[1]
+        command_str = manager.get_command(alias_name)
+        self.assertIsNotNone(command_str)
+        
+        expanded_parts = shlex.split(command_str)
+        new_argv = original_argv[:1] + expanded_parts + original_argv[2:]
+        self.assertEqual(new_argv, ["onefilellm.py", "https://example.com"])
+        
+        # Test placeholder expansion with value
+        original_argv = ["onefilellm.py", "test_placeholder", "machine learning"]
+        alias_name = original_argv[1]
+        command_str = manager.get_command(alias_name)
+        placeholder_value = original_argv[2] if len(original_argv) > 2 else ""
+        
+        # Simulate placeholder replacement
+        expanded_command_str = command_str.replace("{}", placeholder_value)
+        expanded_parts = shlex.split(expanded_command_str)
+        new_argv = original_argv[:1] + expanded_parts + original_argv[3:]
+        
+        # The URL will be split by shlex because it contains spaces
+        self.assertEqual(new_argv, ["onefilellm.py", "https://search.com?q=machine", "learning"])
+        
+        # Test multi-source expansion
+        original_argv = ["onefilellm.py", "test_multi", "extra_arg.txt"]
+        alias_name = original_argv[1]
+        command_str = manager.get_command(alias_name)
+        
+        expanded_parts = shlex.split(command_str)
+        new_argv = original_argv[:1] + expanded_parts + original_argv[2:]
+        
+        expected = ["onefilellm.py", "https://site1.com", "https://site2.com", "extra_arg.txt"]
+        self.assertEqual(new_argv, expected)
+
+    def test_alias_edge_cases(self):
+        """Test edge cases and error conditions"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Test empty command string
+        result = manager.add_or_update_alias("empty_test", "")
+        self.assertTrue(result)  # Should accept empty commands
+        self.assertEqual(manager.get_command("empty_test"), "")
+        
+        # Test command with special characters
+        special_command = "https://example.com/search?q=test&format=json&special=!@#$%"
+        manager.add_or_update_alias("special_chars", special_command)
+        self.assertEqual(manager.get_command("special_chars"), special_command)
+        
+        # Test very long command
+        long_command = " ".join([f"https://example{i}.com" for i in range(50)])
+        manager.add_or_update_alias("long_alias", long_command)
+        retrieved = manager.get_command("long_alias")
+        self.assertEqual(retrieved, long_command)
+        self.assertEqual(len(retrieved.split()), 50)
+        
+        # Test alias name with underscores and hyphens
+        manager.add_or_update_alias("test_under_score", "https://underscore.com")
+        manager.add_or_update_alias("test-hyphen-name", "https://hyphen.com")
+        
+        self.assertEqual(manager.get_command("test_under_score"), "https://underscore.com")
+        self.assertEqual(manager.get_command("test-hyphen-name"), "https://hyphen.com")
+
+    def test_json_persistence_and_loading(self):
+        """Test JSON file persistence and loading across manager instances"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        
+        # Create first manager instance and add aliases
+        manager1 = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager1.load_aliases()
+        
+        manager1.add_or_update_alias("persist_test1", "https://test1.com")
+        manager1.add_or_update_alias("persist_test2", "https://test2.com file.txt")
+        manager1.add_or_update_alias("persist_placeholder", "https://search.com?q={}")
+        
+        # Create second manager instance (simulating restart)
+        manager2 = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager2.load_aliases()
+        
+        # Verify all aliases were persisted and loaded
+        self.assertEqual(manager2.get_command("persist_test1"), "https://test1.com")
+        self.assertEqual(manager2.get_command("persist_test2"), "https://test2.com file.txt")
+        self.assertEqual(manager2.get_command("persist_placeholder"), "https://search.com?q={}")
+        
+        # Verify JSON file structure
+        with open(self.alias_file, 'r') as f:
+            data = json.load(f)
+        
+        self.assertIn("persist_test1", data)
+        self.assertIn("persist_test2", data)
+        self.assertIn("persist_placeholder", data)
+        self.assertEqual(data["persist_test1"], "https://test1.com")
+
+    def test_alias_removal_and_core_restoration(self):
+        """Test removing user aliases and core alias restoration"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Get original core alias
+        original_core = manager.get_command("ofl_repo")
+        self.assertIsNotNone(original_core)
+        
+        # Override with user alias
+        manager.add_or_update_alias("ofl_repo", "https://my-custom-repo.com")
+        self.assertEqual(manager.get_command("ofl_repo"), "https://my-custom-repo.com")
+        
+        # Remove user alias - should restore core alias
+        result = manager.remove_alias("ofl_repo")
+        self.assertTrue(result)
+        self.assertEqual(manager.get_command("ofl_repo"), original_core)
+        
+        # Test removing non-existent user alias
+        result = manager.remove_alias("non_existent_alias")
+        self.assertFalse(result)
+        
+        # Test removing user-only alias
+        manager.add_or_update_alias("user_only", "https://user.com")
+        self.assertEqual(manager.get_command("user_only"), "https://user.com")
+        
+        result = manager.remove_alias("user_only")
+        self.assertTrue(result)
+        self.assertIsNone(manager.get_command("user_only"))
+
+    def test_complex_placeholder_scenarios(self):
+        """Test complex placeholder usage scenarios"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        import shlex
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Test multiple placeholders in same command
+        manager.add_or_update_alias("multi_placeholder", 
+            "https://site1.com/search?q={} https://site2.com/find?term={}")
+        
+        # Simulate expansion with value
+        command = manager.get_command("multi_placeholder")
+        expanded = command.replace("{}", "test_query")  # Use underscore to avoid splitting
+        parts = shlex.split(expanded)
+        
+        self.assertEqual(len(parts), 2)
+        self.assertIn("q=test_query", parts[0])
+        self.assertIn("term=test_query", parts[1])
+        
+        # Test placeholder with complex query (using underscores)
+        complex_query = "machine_learning_transformers_attention"
+        expanded_complex = command.replace("{}", complex_query)
+        parts_complex = shlex.split(expanded_complex)
+        
+        self.assertEqual(len(parts_complex), 2)
+        self.assertIn("q=machine_learning_transformers_attention", parts_complex[0])
+        self.assertIn("term=machine_learning_transformers_attention", parts_complex[1])
+        
+        # Test placeholder with special characters
+        special_query = "test & query with spaces + symbols"
+        expanded_special = command.replace("{}", special_query)
+        # Should not break the command structure
+        self.assertIn("site1.com", expanded_special)
+        self.assertIn("site2.com", expanded_special)
+
+    def test_real_world_alias_scenarios(self):
+        """Test realistic, complex alias scenarios"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Modern web development ecosystem (realistic scenario)
+        web_ecosystem = " ".join([
+            "https://github.com/facebook/react",
+            "https://github.com/vercel/next.js",
+            "https://github.com/tailwindlabs/tailwindcss",
+            "https://github.com/prisma/prisma",
+            "https://reactjs.org/docs/",
+            "https://nextjs.org/docs",
+            "https://tailwindcss.com/docs",
+            "https://www.prisma.io/docs"
+        ])
+        manager.add_or_update_alias("modern_web", web_ecosystem)
+        
+        # AI/ML research ecosystem
+        ai_ecosystem = " ".join([
+            "arxiv:1706.03762",  # Attention is All You Need
+            "arxiv:2005.14165",  # GPT-3
+            "10.1038/s41586-021-03819-2",  # AlphaFold
+            "https://github.com/huggingface/transformers",
+            "https://github.com/openai/whisper",
+            "https://github.com/pytorch/pytorch",
+            "https://huggingface.co/docs",
+            "https://pytorch.org/docs"
+        ])
+        manager.add_or_update_alias("ai_research", ai_ecosystem)
+        
+        # Security research stack
+        security_stack = " ".join([
+            "https://github.com/OWASP/Top10",
+            "https://github.com/aquasecurity/trivy",
+            "https://github.com/falcosecurity/falco",
+            "https://owasp.org/www-project-top-ten/",
+            "https://aquasec.com/trivy/",
+            "https://falco.org/docs/"
+        ])
+        manager.add_or_update_alias("security_stack", security_stack)
+        
+        # Test all aliases work correctly
+        web_cmd = manager.get_command("modern_web")
+        ai_cmd = manager.get_command("ai_research")
+        sec_cmd = manager.get_command("security_stack")
+        
+        # Verify source counts
+        self.assertEqual(len(web_cmd.split()), 8)
+        self.assertEqual(len(ai_cmd.split()), 8)
+        self.assertEqual(len(sec_cmd.split()), 6)
+        
+        # Verify specific sources are present
+        self.assertIn("github.com/facebook/react", web_cmd)
+        self.assertIn("arxiv:1706.03762", ai_cmd)
+        self.assertIn("github.com/OWASP/Top10", sec_cmd)
+        
+        # Test combining aliases (simulating complex command)
+        # This would represent: onefilellm.py modern_web ai_research extra_file.pdf
+        combined_sources = web_cmd.split() + ai_cmd.split() + ["extra_file.pdf"]
+        self.assertEqual(len(combined_sources), 17)  # 8 + 8 + 1
+        
+        # Verify no duplicates in individual aliases
+        web_sources = web_cmd.split()
+        self.assertEqual(len(web_sources), len(set(web_sources)))  # No duplicates
+
+    def test_alias_validation_comprehensive(self):
+        """Comprehensive alias name validation tests"""
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Valid alias names
+        valid_names = [
+            "simple",
+            "with_underscore",
+            "with-hyphen",
+            "mix_ed-name",
+            "name123",
+            "name_123_test",
+            "a",  # Single character
+            "verylongaliasnamethatshouldstillbevalid123"
+        ]
+        
+        for name in valid_names:
+            result = manager.add_or_update_alias(name, "https://example.com")
+            self.assertTrue(result, f"Valid name '{name}' should be accepted")
+            self.assertEqual(manager.get_command(name), "https://example.com")
+        
+        # Invalid alias names
+        invalid_names = [
+            "",  # Empty
+            "--invalid",  # Starts with --
+            "invalid/slash",  # Contains slash
+            "invalid\\backslash",  # Contains backslash
+            "invalid.dot",  # Contains dot
+            "invalid:colon",  # Contains colon
+            "invalid space",  # Contains space
+            "invalid@symbol",  # Contains @
+            "invalid#hash",  # Contains #
+            "invalid$dollar",  # Contains $
+            "invalid%percent",  # Contains %
+        ]
+        
+        for name in invalid_names:
+            result = manager.add_or_update_alias(name, "https://example.com")
+            self.assertFalse(result, f"Invalid name '{name}' should be rejected")
+
 
 class TestIntegration(unittest.TestCase):
     """Integration tests for external services"""
@@ -1240,6 +1681,7 @@ def run_all_tests(verbosity=2):
         TestStreamProcessing,
         TestCoreProcessing,
         TestAliasSystem2,  # New Alias Management 2.0 tests
+        TestAdvancedAliasFeatures,  # Advanced alias functionality tests
         TestIntegration,
         TestCLIFunctionality,
         TestErrorHandling,
