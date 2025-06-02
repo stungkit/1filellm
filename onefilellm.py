@@ -2749,39 +2749,39 @@ def create_argument_parser():
         description="OneFileLLM - Content Aggregator for LLMs",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-🚀 QUICK START EXAMPLES:
+QUICK START EXAMPLES:
 
-📁 LOCAL FILES AND DIRECTORIES:
+LOCAL FILES AND DIRECTORIES:
   python onefilellm.py research_paper.pdf config.yaml src/
   python onefilellm.py *.py requirements.txt docs/ README.md
   python onefilellm.py notebook.ipynb --format json
   python onefilellm.py large_dataset.csv logs/ --format text
 
-🐙 GITHUB REPOSITORIES AND ISSUES:
+GITHUB REPOSITORIES AND ISSUES:
   python onefilellm.py https://github.com/microsoft/vscode
   python onefilellm.py https://github.com/openai/whisper/tree/main/whisper
   python onefilellm.py https://github.com/microsoft/vscode/pull/12345
   python onefilellm.py https://github.com/kubernetes/kubernetes/issues
 
-🌐 WEB DOCUMENTATION AND APIS:
+WEB DOCUMENTATION AND APIS:
   python onefilellm.py https://docs.python.org/3/tutorial/
   python onefilellm.py https://react.dev/learn/thinking-in-react
   python onefilellm.py https://docs.stripe.com/api
   python onefilellm.py https://kubernetes.io/docs/concepts/
 
-📺 MULTIMEDIA AND ACADEMIC SOURCES:
+MULTIMEDIA AND ACADEMIC SOURCES:
   python onefilellm.py https://www.youtube.com/watch?v=dQw4w9WgXcQ
   python onefilellm.py https://arxiv.org/abs/2103.00020
   python onefilellm.py arxiv:1706.03762 PMID:35177773
   python onefilellm.py doi:10.1038/s41586-021-03819-2
 
-⌨️  INPUT STREAMS:
+INPUT STREAMS:
   python onefilellm.py --clipboard --format markdown
   cat large_dataset.json | python onefilellm.py - --format json
   curl -s https://api.github.com/repos/microsoft/vscode | python onefilellm.py -
   echo 'Quick analysis task' | python onefilellm.py -
 
-🏷️  ALIAS SYSTEM 2.0:
+ALIAS SYSTEM 2.0:
   # Create simple and complex aliases
   python onefilellm.py --alias-add mcp "https://github.com/anthropics/mcp"
   python onefilellm.py --alias-add modern-web \\
@@ -2807,7 +2807,7 @@ def create_argument_parser():
   python onefilellm.py ai-research k8s-ecosystem modern-web \\
     conference_notes.pdf local_experiments/
 
-📊 MASSIVE CONTEXT AGGREGATION (800K-1.2M+ tokens):
+MASSIVE CONTEXT AGGREGATION (800K-1.2M+ tokens):
   # Complete technology ecosystem analysis
   python onefilellm.py \\
     https://github.com/kubernetes/kubernetes \\
@@ -2829,7 +2829,7 @@ def create_argument_parser():
     https://huggingface.co/docs \\
     protein_folding_breakthrough_2024.pdf
 
-🕷️  ADVANCED WEB CRAWLING:
+ADVANCED WEB CRAWLING:
   # Comprehensive documentation sites
   python onefilellm.py https://docs.python.org/3/ \\
     --crawl-max-depth 4 --crawl-max-pages 800 \\
@@ -2848,7 +2848,7 @@ def create_argument_parser():
     --crawl-include-pattern ".*/(abs|pdf)/" \\
     --crawl-include-pdfs --crawl-delay 1.0
 
-🔄 INTEGRATION PIPELINES WITH 'llm' TOOL:
+INTEGRATION PIPELINES WITH 'llm' TOOL:
   # Multi-stage research analysis
   python onefilellm.py ai-research protein-folding | \\
     llm -m claude-3-haiku "Extract key methodologies and datasets" | \\
@@ -2878,7 +2878,7 @@ def create_argument_parser():
     llm -m claude-3-sonnet "Quantify sentiment scores" | \\
     jq -r '.sentiment + " (" + .timestamp + ")"'
 
-💼 BUSINESS AND ENTERPRISE WORKFLOWS:
+BUSINESS AND ENTERPRISE WORKFLOWS:
   # Market research and competitive intelligence
   python onefilellm.py fintech-apis ecommerce-stack \\
     https://news.ycombinator.com/item?id=38709319 \\
@@ -2893,7 +2893,7 @@ def create_argument_parser():
     llm -m claude-3-sonnet "Identify scalability considerations" | \\
     llm -m claude-3-opus "Design optimal tech stack"
 
-🧬 ACADEMIC AND RESEARCH WORKFLOWS:
+ACADEMIC AND RESEARCH WORKFLOWS:
   # Literature review with citation analysis
   python onefilellm.py \\
     "arxiv:2103.00020" "arxiv:2005.14165" "10.1038/s41586-021-03819-2" | \\
@@ -2908,7 +2908,7 @@ def create_argument_parser():
     interdisciplinary_notes.md | \\
     llm -m claude-3-opus "Identify cross-domain insights and novel approaches"
 
-🔄 AUTOMATION AND MONITORING:
+AUTOMATION AND MONITORING:
   # Daily research monitoring (cron job)
   0 9 * * * python onefilellm.py \\
     https://arxiv.org/list/cs.AI/recent \\
@@ -2917,20 +2917,20 @@ def create_argument_parser():
     llm -m claude-3-sonnet "Summarize key developments" | \\
     mail -s "Daily AI Research Brief" researcher@company.com
 
-💻 FORMAT AND INPUT OPTIONS:
+FORMAT AND INPUT OPTIONS:
   python onefilellm.py data.txt --format markdown
   python onefilellm.py config.yaml --format yaml  
   python onefilellm.py response.json --format json
   python onefilellm.py notebook.ipynb --format text
   python onefilellm.py api_docs.html --format html
 
-⚙️  ALIAS MANAGEMENT:
+ALIAS MANAGEMENT:
   python onefilellm.py --alias-list              # Show all aliases
   python onefilellm.py --alias-list-core         # Show core aliases only
   python onefilellm.py --alias-remove old-alias  # Remove user alias
   cat ~/.onefilellm_aliases/aliases.json         # View raw JSON
 
-📖 COMPREHENSIVE HELP SYSTEM:
+COMPREHENSIVE HELP SYSTEM:
   python onefilellm.py --help-topic basic      # Input sources and basic usage
   python onefilellm.py --help-topic aliases    # Alias system with real examples
   python onefilellm.py --help-topic crawling   # Web crawler patterns and ethics
@@ -2938,15 +2938,15 @@ def create_argument_parser():
   python onefilellm.py --help-topic examples   # Advanced usage patterns
   python onefilellm.py --help-topic config     # Environment and configuration
 
-🎯 REAL-WORLD USE CASES:
-  • Technology due diligence and competitive analysis
-  • Academic literature review and research synthesis
-  • Security vulnerability assessment and threat intelligence
-  • API integration planning and architecture analysis
-  • Market research and business intelligence
-  • Multi-language documentation analysis
-  • Content aggregation for LLM fine-tuning datasets
-  • Automated research monitoring and alerting
+REAL-WORLD USE CASES:
+  - Technology due diligence and competitive analysis
+  - Academic literature review and research synthesis
+  - Security vulnerability assessment and threat intelligence
+  - API integration planning and architecture analysis
+  - Market research and business intelligence
+  - Multi-language documentation analysis
+  - Content aggregation for LLM fine-tuning datasets
+  - Automated research monitoring and alerting
 """
     )
     
