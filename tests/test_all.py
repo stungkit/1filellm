@@ -1041,6 +1041,214 @@ class TestAdvancedAliasFeatures(unittest.TestCase):
             result = manager.add_or_update_alias(name, "https://example.com")
             self.assertFalse(result, f"Invalid name '{name}' should be rejected")
 
+    def test_cli_alias_add_single_source(self):
+        """Test --alias-add with single source (backward compatibility)"""
+        from onefilellm import main
+        import sys
+        import asyncio
+        from io import StringIO
+        
+        # Capture output
+        captured_output = StringIO()
+        
+        # Test single source alias
+        test_args = ['onefilellm.py', '--alias-add', 'test_single', 'https://example.com']
+        with patch('sys.argv', test_args):
+            with patch('sys.stdout', captured_output):
+                asyncio.run(main())
+        
+        # Verify alias was created
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Check the alias exists and has correct value
+        command = manager.get_command('test_single')
+        self.assertEqual(command, 'https://example.com')
+
+    def test_cli_alias_add_multi_source_quoted(self):
+        """Test --alias-add with quoted multi-source command (backward compatibility)"""
+        from onefilellm import main
+        import sys
+        import asyncio
+        from io import StringIO
+        
+        # Capture output
+        captured_output = StringIO()
+        
+        # Test multi-source alias with quotes
+        test_args = ['onefilellm.py', '--alias-add', 'test_multi_quoted', 
+                     'https://example1.com https://example2.com https://example3.com']
+        with patch('sys.argv', test_args):
+            with patch('sys.stdout', captured_output):
+                asyncio.run(main())
+        
+        # Verify alias was created
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Check the alias exists and has all sources
+        command = manager.get_command('test_multi_quoted')
+        self.assertIn('https://example1.com', command)
+        self.assertIn('https://example2.com', command)
+        self.assertIn('https://example3.com', command)
+
+    def test_cli_alias_add_multi_source_unquoted(self):
+        """Test --alias-add with unquoted multi-source command (new functionality)"""
+        from onefilellm import main
+        import sys
+        import asyncio
+        from io import StringIO
+        
+        # Capture output
+        captured_output = StringIO()
+        
+        # Test multi-source alias without quotes - NEW FUNCTIONALITY
+        test_args = ['onefilellm.py', '--alias-add', 'test_multi_unquoted', 
+                     'https://example1.com', 'https://example2.com', 'https://example3.com']
+        with patch('sys.argv', test_args):
+            with patch('sys.stdout', captured_output):
+                asyncio.run(main())
+        
+        # Verify alias was created
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Check the alias exists and has all sources
+        command = manager.get_command('test_multi_unquoted')
+        self.assertIn('https://example1.com', command)
+        self.assertIn('https://example2.com', command)
+        self.assertIn('https://example3.com', command)
+        
+        # Verify they're space-separated
+        sources = command.split()
+        self.assertEqual(len(sources), 3)
+        self.assertEqual(sources[0], 'https://example1.com')
+        self.assertEqual(sources[1], 'https://example2.com')
+        self.assertEqual(sources[2], 'https://example3.com')
+
+    def test_cli_alias_add_with_local_files(self):
+        """Test --alias-add with URLs and local files mixed"""
+        from onefilellm import main
+        import sys
+        import asyncio
+        from io import StringIO
+        
+        # Capture output
+        captured_output = StringIO()
+        
+        # Test alias with URLs and local files
+        test_args = ['onefilellm.py', '--alias-add', 'test_mixed', 
+                     'https://example.com', 'local_file.txt', 
+                     'https://example2.com', 'another_file.md']
+        with patch('sys.argv', test_args):
+            with patch('sys.stdout', captured_output):
+                asyncio.run(main())
+        
+        # Verify alias was created
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Check the alias has all components
+        command = manager.get_command('test_mixed')
+        self.assertIn('https://example.com', command)
+        self.assertIn('local_file.txt', command)
+        self.assertIn('https://example2.com', command)
+        self.assertIn('another_file.md', command)
+
+    def test_cli_alias_add_placeholder_support(self):
+        """Test --alias-add with placeholder {} support"""
+        from onefilellm import main
+        import sys
+        import asyncio
+        from io import StringIO
+        
+        # Capture output
+        captured_output = StringIO()
+        
+        # Test alias with placeholder and multiple sources
+        test_args = ['onefilellm.py', '--alias-add', 'test_search', 
+                     'https://github.com/search?q={}', 'https://docs.github.com/search?q={}']
+        with patch('sys.argv', test_args):
+            with patch('sys.stdout', captured_output):
+                asyncio.run(main())
+        
+        # Verify alias was created
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Check placeholder is preserved
+        command = manager.get_command('test_search')
+        self.assertEqual(command, 'https://github.com/search?q={} https://docs.github.com/search?q={}')
+
+    def test_cli_alias_add_error_handling(self):
+        """Test --alias-add error handling for invalid inputs"""
+        from onefilellm import main
+        import sys
+        import asyncio
+        from io import StringIO
+        
+        # Test with only one argument (missing command string)
+        captured_output = StringIO()
+        test_args = ['onefilellm.py', '--alias-add', 'only_name']
+        with patch('sys.argv', test_args):
+            with patch('sys.stdout', captured_output):
+                asyncio.run(main())
+        
+        output = captured_output.getvalue()
+        self.assertIn('Error', output)
+        self.assertIn('requires at least two arguments', output)
+
+    def test_cli_alias_add_special_characters(self):
+        """Test --alias-add with special characters and edge cases"""
+        from onefilellm import main
+        import sys
+        import asyncio
+        from io import StringIO
+        
+        # Capture output
+        captured_output = StringIO()
+        
+        # Test alias with special characters in URL
+        test_args = ['onefilellm.py', '--alias-add', 'test_special', 
+                     'https://example.com/path?param1=value1&param2=value2', 
+                     'https://api.example.com/v2/search?q=test+query']
+        with patch('sys.argv', test_args):
+            with patch('sys.stdout', captured_output):
+                asyncio.run(main())
+        
+        # Verify alias was created correctly
+        from onefilellm import AliasManager, CORE_ALIASES
+        from rich.console import Console
+        
+        console = Console()
+        manager = AliasManager(console, CORE_ALIASES, self.alias_file)
+        manager.load_aliases()
+        
+        # Check special characters are preserved
+        command = manager.get_command('test_special')
+        self.assertIn('param1=value1&param2=value2', command)
+        self.assertIn('q=test+query', command)
+
 
 class TestIntegration(unittest.TestCase):
     """Integration tests for external services"""

@@ -2961,8 +2961,8 @@ REAL-WORLD USE CASES:
     
     # Alias management
     alias_group = parser.add_argument_group('Alias Management')
-    alias_group.add_argument('--alias-add', nargs=2, metavar=('NAME', 'COMMAND_STRING'),
-                             help='Add or update a user-defined alias. COMMAND_STRING should be quoted if it contains spaces.')
+    alias_group.add_argument('--alias-add', nargs='+', metavar=('NAME', 'COMMAND_STRING'),
+                             help='Add or update a user-defined alias. Multiple arguments after NAME will be joined as COMMAND_STRING.')
     alias_group.add_argument('--alias-remove', metavar='NAME',
                              help='Remove a user-defined alias.')
     alias_group.add_argument('--alias-list', action='store_true',
@@ -3080,7 +3080,12 @@ async def main():
     
     # --- Handle Alias Management CLI Commands ---
     if args.alias_add:
-        alias_manager.add_or_update_alias(args.alias_add[0], args.alias_add[1])
+        if len(args.alias_add) < 2:
+            console.print("[bold red]Error:[/bold red] --alias-add requires at least two arguments: NAME and COMMAND_STRING")
+            return
+        alias_name = args.alias_add[0]
+        command_string = ' '.join(args.alias_add[1:])
+        alias_manager.add_or_update_alias(alias_name, command_string)
         return # Exit after managing alias
     if args.alias_remove:
         alias_manager.remove_alias(args.alias_remove)
