@@ -22,7 +22,7 @@ cat ./src/utils.py
 
 ```bash
 # After: Automated aggregation
-onefilellm ./src/ https://github.com/user/project/issues/123
+python onefilellm.py ./src/ https://github.com/user/project/issues/123
 # (manually paste into LLM)
 ```
 
@@ -36,8 +36,7 @@ onefilellm ./src/ https://github.com/user/project/issues/123
 2.  Install the required Python dependencies:
     ```bash
     pip install -r requirements.txt
-    ```
-3.  (Recommended) Set the `GITHUB_TOKEN` environment variable to prevent API rate-limiting and to access private repositories.
+    ```3.  (Recommended) Set the `GITHUB_TOKEN` environment variable to prevent API rate-limiting and to access private repositories.
     ```bash
     export GITHUB_TOKEN="your_personal_access_token"
     ```
@@ -69,28 +68,33 @@ The tool is invoked by providing a list of input sources. It supports a variety 
 
 ### Handling Multiple Input Sources
 
-The tool can process and aggregate any number of different sources in a single command. It processes inputs concurrently and combines the structured results into one XML document.
+The tool can process and aggregate any number of different sources in a single command, including a mix of live inputs and pre-defined aliases. It processes inputs concurrently and combines the structured results into one XML document.
 
 **Example:** Combine a local directory, a specific GitHub issue, and a documentation page.
 ```bash
 python onefilellm.py ./src/ https://github.com/jimmc414/onefilellm/issues/1 https://react.dev/
-```
-This allows for the creation of rich, multi-faceted contexts for an LLM.
+```This allows for the creation of rich, multi-faceted contexts for an LLM.
 
 ### Creating Workflow Aliases
 
-The aliasing system allows you to save and re-use complex data aggregation commands. This is useful for recurring tasks, such as gathering the context for a specific project.
+The aliasing system allows you to save and re-use complex data aggregation commands. This is useful for recurring tasks, such as gathering the context for a specific project or technology stack.
 
 **Creating an Alias:**
-The `--alias-add` command defines a new alias. The alias name is the first argument, and the command string (the sources to process) is the second.
+The `--alias-add` command defines a new alias. The alias name is the first argument, followed by a space-separated list of sources.
 
 ```bash
-# Create an alias named 'project-context' for a project's key components
-python onefilellm.py --alias-add project-context "src/ docs/README.md https://github.com/user/project/issues"
+# Alias for a project's key components
+python onefilellm.py --alias-add project-context src/ docs/README.md https://github.com/user/project/issues
+
+# Alias for an entire SDK (repository + documentation)
+python onefilellm.py --alias-add vercel-ai-sdk https://github.com/vercel/ai https://sdk.vercel.ai/docs
+
+# Alias for a technical specification (Model Context Protocol)
+python onefilellm.py --alias-add mcp-spec https://modelcontextprotocol.io/llms-full.txt https://github.com/modelcontextprotocol/python-sdk
 ```
 
 **Using an Alias:**
-You can then invoke the alias by its name.
+You can then invoke an alias by its name.
 ```bash
 python onefilellm.py project-context
 ```
@@ -100,7 +104,7 @@ Aliases can include a `{}` placeholder for dynamic input. This is useful for cre
 
 ```bash
 # Create an alias to search a GitHub organization
-python onefilellm.py --alias-add search-msft "https://github.com/microsoft/{} --crawl-max-depth 0"
+python onefilellm.py --alias-add search-msft "https://github.com/microsoft/{}"
 
 # Use the alias with a search term
 python onefilellm.py search-msft "terminal"
@@ -112,31 +116,54 @@ python onefilellm.py search-msft "terminal"
 
 ## Practical Use-Cases
 
-1.  **Codebase Review**
+1.  **Combining Multiple Aliases for Cross-Stack Analysis**
+    Aggregate the context from several pre-defined aliases to analyze interactions between different technology stacks.
+    ```bash
+    # Prerequisite: Create aliases for each stack
+    python onefilellm.py --alias-add k8s-stack https://github.com/kubernetes/kubernetes https://kubernetes.io/docs/
+    python onefilellm.py --alias-add istio-stack https://github.com/istio/istio https://istio.io/latest/docs/
+
+    # Combine aliases in a single command
+    python onefilellm.py k8s-stack istio-stack
+    ```
+    *Outcome:* Provides an LLM with the source code and documentation for both Kubernetes and Istio, enabling questions about their integration, configuration, and comparative features.
+
+2.  **In-depth and Respectful Documentation Crawling**
+    Perform a deep crawl of a large documentation site while filtering noise and respecting the server's load.
+    ```bash
+    python onefilellm.py https://kubernetes.io/docs/concepts/ \
+      --crawl-max-depth 5 \
+      --crawl-restrict-path \
+      --crawl-delay 0.5 \
+      --crawl-exclude-pattern ".(jpg|png|svg)$"
+    ```
+    *Outcome:* Gathers a comprehensive snapshot of the Kubernetes concepts documentation.
+    *   `--crawl-restrict-path`: Ensures the crawler does not leave the `/docs/concepts/` section.
+    *   `--crawl-delay 0.5`: Adds a 500ms delay between requests to avoid overloading the server.
+    *   `--crawl-exclude-pattern`: Prevents the crawler from downloading image files.
+
+3.  **Aggregating Industry Specifications and SDKs**
+    Gather the complete context for a technical standard by combining its specification file, reference implementation, and a related tool.
+    ```bash
+    # Prerequisite: Create an alias for the Model Context Protocol
+    python onefilellm.py --alias-add mcp-spec https://modelcontextprotocol.io/llms-full.txt https://github.com/modelcontextprotocol/python-sdk
+
+    # Combine the alias with another relevant SDK
+    python onefilellm.py mcp-spec https://github.com/anthropics/anthropic-sdk-python
+    ```
+    *Outcome:* Creates a prompt context containing the MCP specification, its Python SDK, and the official Anthropic Python SDK, allowing for detailed analysis of implementation and compatibility.
+
+4.  **Codebase Review with Full Context**
     Aggregate a local directory of code changes, a relevant GitHub Pull Request, and its corresponding issue to provide a complete context for code review.
     ```bash
     python onefilellm.py ./my-feature-branch/ https://github.com/user/repo/pull/42 https://github.com/user/repo/issues/35
     ```
     *Outcome:* Provides the LLM with the PR diff, discussion, related issue, and the current state of local code for a comprehensive review.
 
-2.  **Research Paper Analysis**
-    Combine an ArXiv paper, its reference implementation on GitHub, and a related YouTube explanation into a single context.
-    ```bash
-    python onefilellm.py https://arxiv.org/abs/1706.03762 https://github.com/tensorflow/tensor2tensor https://www.youtube.com/watch?v=AIiwuClvH6k
-    ```
-    *Outcome:* Creates a unified context for understanding a research paper from theory to implementation and expert discussion.
-
-3.  **Targeted Documentation Crawling**
-    Ingest the core documentation for a web framework, limited to specific paths to create a focused knowledge base.
-    ```bash
-    python onefilellm.py https://docs.djangoproject.com/ --crawl-max-depth 2 --crawl-include-pattern "/topics/|/ref/"
-    ```
-    *Outcome:* Creates a targeted knowledge base from a documentation site, focusing on relevant API reference and topic guides while excluding blog posts or news.
-
-4.  **Pipeline Integration with other CLI tools**
+5.  **Pipeline Integration with other CLI tools**
     Use `onefilellm` as the data aggregation stage in a larger command-line workflow, piping its output to another LLM tool for analysis.
     ```bash
-    python onefilellm.py k8s-ecosystem-alias | llm -m claude-3-opus "Summarize the key architectural patterns."
+    python onefilellm.py k8s-stack | llm -m claude-3-opus "Summarize the key architectural patterns."
     ```
     *Outcome:* Demonstrates how the tool can function as a modular component in automated, script-driven AI workflows.
 
@@ -146,12 +173,12 @@ python onefilellm.py search-msft "terminal"
     ```json
     {
       "project-context": "src/ docs/README.md https://github.com/user/project/issues",
-      "search-msft": "https://github.com/microsoft/{} --crawl-max-depth 0"
+      "search-msft": "https://github.com/microsoft/{}",
+      "mcp-spec": "https://modelcontextprotocol.io/llms-full.txt https://github.com/modelcontextprotocol/python-sdk"
     }
     ```
 *   **Environment Variables:** For full functionality, especially with GitHub, the following environment variable is recommended:
     *   `GITHUB_TOKEN`: A GitHub Personal Access Token. Used to access private repositories and to avoid public API rate limits.
-
 -----
 
 old readme.md below
