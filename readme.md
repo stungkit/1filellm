@@ -1,4 +1,155 @@
+# OneFileLLM
 
+A CLI utility for aggregating and structuring multi-source data for LLM context.
+
+## Overview
+
+A common task when using Large Language Models is providing them with sufficient context about a complex topic, such as a software project, a research paper, or technical documentation. This often involves manually gathering content from multiple sources like code files, web pages, and API responses, then copy-pasting them into a prompt.
+
+`OneFileLLM` is a command-line tool that automates this data aggregation process. It accepts multiple input sources of various types, determines how to process each one, fetches the content, and combines it all into a single, structured XML output. The result is then copied to the system clipboard, ready for use.
+
+For example, instead of a multi-step manual process:
+
+```bash
+# Before: Manual gathering
+cat ./src/main.py
+cat ./src/utils.py
+# (manually open browser to view GitHub issue, copy content)
+# (manually combine and paste everything into LLM)
+```
+
+`OneFileLLM` provides a direct, single-command alternative:
+
+```bash
+# After: Automated aggregation
+onefilellm ./src/ https://github.com/user/project/issues/123
+```
+
+## Installation
+
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/jimmc414/onefilellm.git
+    cd onefilellm
+    ```
+2.  Install the required Python dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
+3.  (Recommended) Set the `GITHUB_TOKEN` environment variable to prevent API rate-limiting and to access private repositories.
+    ```bash
+    export GITHUB_TOKEN="your_personal_access_token"
+    ```
+
+## Usage
+
+The tool is invoked by providing a list of input sources. It supports a variety of source types, which it detects automatically.
+
+**Synopsis:**
+`python onefilellm.py [OPTIONS] [INPUT_SOURCES...]`
+
+**Supported Input Sources:**
+
+*   **Local Files & Directories:** `path/to/file.py`, `path/to/project/`
+*   **GitHub URLs:**
+    *   Repository: `https://github.com/user/repo`
+    *   Issue: `https://github.com/user/repo/issues/1`
+    *   Pull Request: `https://github.com/user/repo/pull/1`
+*   **Web URLs:** `https://docs.example.com/` (for crawling)
+*   **Academic Sources:**
+    *   ArXiv: `https://arxiv.org/abs/1706.03762`
+    *   DOI: `10.1038/s41586-021-03819-2`
+*   **YouTube Transcripts:** `https://www.youtube.com/watch?v=...`
+*   **Streamed Input:**
+    *   From `stdin`: `cat file.txt | python onefilellm.py -`
+    *   From Clipboard: `python onefilellm.py --clipboard`
+
+## Key Features
+
+### Handling Multiple Input Sources
+
+The tool can process and aggregate any number of different sources in a single command. It processes inputs concurrently and combines the structured results into one XML document.
+
+**Example:** Combine a local directory, a specific GitHub issue, and a documentation page.
+```bash
+python onefilellm.py ./src/ https://github.com/jimmc414/onefilellm/issues/1 https://react.dev/
+```
+This allows for the creation of rich, multi-faceted contexts for an LLM.
+
+### Creating Workflow Aliases
+
+The aliasing system allows you to save and re-use complex data aggregation commands. This is useful for recurring tasks, such as gathering the context for a specific project.
+
+**Creating an Alias:**
+The `--alias-add` command defines a new alias. The alias name is the first argument, and the command string (the sources to process) is the second.
+
+```bash
+# Create an alias named 'project-context' for a project's key components
+python onefilellm.py --alias-add project-context "src/ docs/README.md https://github.com/user/project/issues"
+```
+
+**Using an Alias:**
+You can then invoke the alias by its name.
+```bash
+python onefilellm.py project-context
+```
+
+**Aliases with Placeholders:**
+Aliases can include a `{}` placeholder for dynamic input. This is useful for creating searchable shortcuts.
+
+```bash
+# Create an alias to search a GitHub organization
+python onefilellm.py --alias-add search-msft "https://github.com/microsoft/{} --crawl-max-depth 0"
+
+# Use the alias with a search term
+python onefilellm.py search-msft "terminal"
+```
+
+**Managing Aliases:**
+*   `--alias-list`: View all defined aliases.
+*   `--alias-remove <name>`: Remove a user-defined alias.
+
+## Practical Use-Cases
+
+1.  **Codebase Review**
+    Aggregate a local directory of code changes, a relevant GitHub Pull Request, and its corresponding issue to provide a complete context for code review.
+    ```bash
+    python onefilellm.py ./my-feature-branch/ https://github.com/user/repo/pull/42 https://github.com/user/repo/issues/35
+    ```
+    *Outcome:* Provides the LLM with the PR diff, discussion, related issue, and the current state of local code for a comprehensive review.
+
+2.  **Research Paper Analysis**
+    Combine an ArXiv paper, its reference implementation on GitHub, and a related YouTube explanation into a single context.
+    ```bash
+    python onefilellm.py https://arxiv.org/abs/1706.03762 https://github.com/tensorflow/tensor2tensor https://www.youtube.com/watch?v=AIiwuClvH6k
+    ```
+    *Outcome:* Creates a unified context for understanding a research paper from theory to implementation and expert discussion.
+
+3.  **Targeted Documentation Crawling**
+    Ingest the core documentation for a web framework, limited to specific paths to create a focused knowledge base.
+    ```bash
+    python onefilellm.py https://docs.djangoproject.com/ --crawl-max-depth 2 --crawl-include-pattern "/topics/|/ref/"
+    ```
+    *Outcome:* Creates a targeted knowledge base from a documentation site, focusing on relevant API reference and topic guides while excluding blog posts or news.
+
+4.  **Pipeline Integration with other CLI tools**
+    Use `onefilellm` as the data aggregation stage in a larger command-line workflow, piping its output to another LLM tool for analysis.
+    ```bash
+    python onefilellm.py k8s-ecosystem-alias | llm -m claude-3-opus "Summarize the key architectural patterns."
+    ```
+    *Outcome:* Demonstrates how the tool can function as a modular component in automated, script-driven AI workflows.
+
+## Configuration
+
+*   **Alias Storage:** User-defined aliases are stored in a JSON file located at `~/.onefilellm_aliases/aliases.json`. This file can be edited directly.
+    ```json
+    {
+      "project-context": "src/ docs/README.md https://github.com/user/project/issues",
+      "search-msft": "https://github.com/microsoft/{} --crawl-max-depth 0"
+    }
+    ```
+*   **Environment Variables:** For full functionality, especially with GitHub, the following environment variable is recommended:
+    *   `GITHUB_TOKEN`: A GitHub Personal Access Token. Used to access private repositories and to avoid public API rate limits.
 
 -----
 
