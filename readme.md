@@ -23,7 +23,7 @@ cat ./src/utils.py
 ```bash
 # After: Automated aggregation
 onefilellm ./src/ https://github.com/user/project/issues/123
-# (manually paste xml formatted clipboard contents into LLM)
+# (manually paste into LLM)
 ```
 
 ## Installation
