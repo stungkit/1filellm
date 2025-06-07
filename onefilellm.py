@@ -1263,7 +1263,9 @@ class DocCrawler:
             return False
 
         if self.ignore_epubs and url.lower().endswith('.epub'):
-            self.console.print(f"  [dim]Skipping EPUB: {url}[/dim]")
+            # Only print skip message if not using progress bar
+            if not self.rich_progress:
+                self.console.print(f"  [dim]Skipping EPUB: {url}[/dim]")
             return False
             
         # Note: robots.txt check is async, so it's done in the worker.
@@ -1526,7 +1528,9 @@ class DocCrawler:
                 self.visited_urls.add(url)
                 await asyncio.sleep(self.delay)
 
-                self.console.print(f"[cyan]Crawling (Depth {depth}):[/cyan] {url}")
+                # Only print crawling message if not using progress bar
+                if not self.rich_progress:
+                    self.console.print(f"[cyan]Crawling (Depth {depth}):[/cyan] {url}")
                 
                 content_bytes, error_msg, content_type_header = await self._fetch_url_content(url)
 
@@ -2006,9 +2010,6 @@ async def process_input(input_path, args, progress=None, task=None):
     urls_list_file = "processed_urls.txt"
     
     try:
-        if task:
-            progress.update(task, description=f"[bright_blue]Processing {input_path}...")
-        
         console.print(f"\n[bold bright_green]Processing:[/bold bright_green] [bold bright_yellow]{input_path}[/bold bright_yellow]\n")
         
         # Input type detection logic
@@ -3309,12 +3310,20 @@ async def main():
     with Progress(
         TextColumn("[bold bright_blue]{task.description}"),
         BarColumn(bar_width=None),
+        "[progress.percentage]{task.percentage:>3.0f}%",
+        "•",
+        TextColumn("{task.completed}/{task.total} sources"),
+        "•",
         TimeRemainingColumn(),
         console=console,
-        transient=True # Clear progress on exit
+        transient=False,
+        refresh_per_second=2,  # Reduce refresh rate to minimize conflicts
+        disable=False,
+        expand=True
     ) as progress:
 
-        task = progress.add_task("[bright_blue]Processing...", total=None) # Indeterminate task
+        # Make the task determinate using the number of inputs
+        task = progress.add_task("[bright_blue]Processing inputs...", total=len(input_paths))
 
         try:
             # Process each input path
@@ -3325,6 +3334,9 @@ async def main():
                     console.print(f"[green]Successfully processed: {input_path}[/green]")
                 else:
                     console.print(f"[yellow]No output generated for: {input_path}[/yellow]")
+                
+                # Advance the progress bar after each item is processed
+                progress.update(task, advance=1)
             
             # Combine all outputs into one final output
             if not outputs:
@@ -3341,6 +3353,14 @@ async def main():
             with open(output_file, "w", encoding="utf-8") as file:
                 file.write(final_output)
             print("Output written successfully.")
+
+            # --- NEW: Enhanced Summary ---
+            final_output_size_bytes = len(final_output.encode('utf-8'))
+            final_output_size_kb = final_output_size_bytes / 1024
+            console.print(f"\n[bold bright_blue]Summary:[/bold bright_blue]")
+            console.print(f"  - [cyan]Sources Processed:[/cyan] [bold white]{len(outputs)}[/bold white]")
+            console.print(f"  - [cyan]Final Output Size:[/cyan] [bold white]{final_output_size_kb:,.2f} KB[/bold white]")
+            # --- END NEW ---
 
             # Get token count for the main output (strips XML tags)
             uncompressed_token_count = get_token_count(final_output)
