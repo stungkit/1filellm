@@ -40,7 +40,8 @@ from onefilellm import (
     combine_xml_outputs,
     preprocess_text,
     ensure_alias_dir_exists,
-    ENABLE_COMPRESSION_AND_NLTK
+    ENABLE_COMPRESSION_AND_NLTK,
+    TOKEN_ESTIMATE_MULTIPLIER
 )
 
 from utils import (
@@ -339,6 +340,45 @@ class TestCoreProcessing(unittest.TestCase):
         xml_count = get_token_count(xml_text)
         content_count = get_token_count("Content")
         self.assertEqual(xml_count, content_count)
+    
+    def test_token_count_estimation(self):
+        """Test token count estimation with multiplier"""
+        # Test basic estimation calculation
+        test_text = "This is a sample text that will be used to test token estimation."
+        base_count = get_token_count(test_text)
+        
+        # Calculate estimated count using the imported multiplier
+        estimated_count = round(base_count * TOKEN_ESTIMATE_MULTIPLIER)
+        
+        # Verify the multiplier is applied correctly
+        self.assertEqual(estimated_count, round(base_count * TOKEN_ESTIMATE_MULTIPLIER))
+        
+        # Verify the multiplier value is reasonable (between 1.0 and 2.0)
+        self.assertGreater(TOKEN_ESTIMATE_MULTIPLIER, 1.0)
+        self.assertLess(TOKEN_ESTIMATE_MULTIPLIER, 2.0)
+        
+        # Test with a known token count
+        # "Hello world" is typically 2 tokens
+        simple_text = "Hello world"
+        simple_count = get_token_count(simple_text)
+        simple_estimated = round(simple_count * TOKEN_ESTIMATE_MULTIPLIER)
+        
+        # Verify estimated is greater than base count
+        self.assertGreater(simple_estimated, simple_count)
+        
+        # Test formatting with comma separator
+        large_text = " ".join(["word"] * 10000)  # Create text with many tokens
+        large_count = get_token_count(large_text)
+        large_estimated = round(large_count * TOKEN_ESTIMATE_MULTIPLIER)
+        
+        # Format with comma separator
+        formatted_base = f"{large_count:,}"
+        formatted_estimated = f"{large_estimated:,}"
+        
+        # Verify formatting includes commas for large numbers
+        if large_count >= 1000:
+            self.assertIn(",", formatted_base)
+            self.assertIn(",", formatted_estimated)
     
     def test_combine_xml_outputs(self):
         """Test combining multiple XML outputs"""

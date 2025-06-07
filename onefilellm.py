@@ -53,6 +53,7 @@ except ImportError:
 
 # --- Configuration Flags ---
 ENABLE_COMPRESSION_AND_NLTK = False # Set to True to enable NLTK download, stopword removal, and compressed output
+TOKEN_ESTIMATE_MULTIPLIER = 1.37 # Multiplier to estimate model token usage from tiktoken count
 # --- End Configuration Flags ---
 
 # --- Output Format Notes ---
@@ -821,22 +822,71 @@ def fetch_youtube_transcript(url):
         # Use XML for errors
         return f'<source type="youtube_transcript" url="{escape_xml(url)}">\n<error>Could not extract video ID from URL.</error>\n</source>'
 
+    transcript_data = None
+    error_msg = None
+    
+    # Try Method 1: Direct get_transcript (works for some videos)
     try:
         print(f"Fetching transcript for YouTube video ID: {video_id}")
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-        formatter = TextFormatter()
-        transcript = formatter.format_transcript(transcript_list)
-        print("Transcript fetched successfully.")
-
-        # Use XML structure for success
-        formatted_text = f'<source type="youtube_transcript" url="{escape_xml(url)}">\n'
-        formatted_text += transcript # Append raw transcript text
-        formatted_text += '\n</source>' # Close source tag
-        return formatted_text
+        
+        if isinstance(transcript_list, list) and transcript_list:
+            transcript_data = transcript_list
+            print(f"Transcript fetched successfully using direct method. Got {len(transcript_list)} entries.")
     except Exception as e:
-        print(f"[bold red]Error fetching YouTube transcript for {url}: {e}[/bold red]")
-        # Use XML structure for errors
-        return f'<source type="youtube_transcript" url="{escape_xml(url)}">\n<error>{escape_xml(str(e))}</error>\n</source>'
+        error_msg = str(e)
+        print(f"Direct method failed: {error_msg}")
+    
+    # Try Method 2: List transcripts and fetch the first available one
+    if not transcript_data:
+        try:
+            print("Trying alternative method: listing available transcripts...")
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            
+            # Try to fetch the first available transcript
+            for transcript in transcript_list:
+                try:
+                    print(f"Attempting to fetch {transcript.language} transcript...")
+                    transcript_data = transcript.fetch()
+                    if transcript_data:
+                        print(f"Successfully fetched {transcript.language} transcript.")
+                        break
+                except:
+                    continue
+                    
+        except Exception as e:
+            if not error_msg:
+                error_msg = str(e)
+    
+    # Format the successful transcript or return error
+    if transcript_data:
+        try:
+            formatter = TextFormatter()
+            transcript = formatter.format_transcript(transcript_data)
+            
+            # Use XML structure for success
+            formatted_text = f'<source type="youtube_transcript" url="{escape_xml(url)}">\n'
+            formatted_text += transcript # Append raw transcript text
+            formatted_text += '\n</source>' # Close source tag
+            return formatted_text
+        except Exception as e:
+            error_msg = f"Error formatting transcript: {str(e)}"
+    
+    # Handle errors
+    if not error_msg:
+        error_msg = "Unable to fetch transcript"
+        
+    # Check for common error types and provide better messages
+    if "no element found" in error_msg or "ParseError" in error_msg:
+        error_msg = "No captions/transcript available for this video (parsing error)"
+    elif "NoTranscriptFound" in error_msg:
+        error_msg = "No transcript found for this video"
+    elif "'dict' object has no attribute 'text'" in error_msg:
+        error_msg = "Unexpected transcript format"
+        
+    print(f"[bold red]Error fetching YouTube transcript for {url}: {error_msg}[/bold red]")
+    # Use XML structure for errors
+    return f'<source type="youtube_transcript" url="{escape_xml(url)}">\n<error>{escape_xml(error_msg)}</error>\n</source>'
 
 def preprocess_text(input_file, output_file):
     """
@@ -3165,7 +3215,9 @@ async def main():
                 console.print("Output written successfully.")
 
                 uncompressed_token_count = get_token_count(final_combined_output)
-                console.print(f"\n[bright_green]Content Token Count (approx):[/bright_green] [bold bright_cyan]{uncompressed_token_count}[/bold bright_cyan]")
+                estimated_uncompressed_token_count = round(uncompressed_token_count * TOKEN_ESTIMATE_MULTIPLIER)
+                console.print(f"\n[bright_green]Content Token Count (tiktoken):[/bright_green] [bold bright_cyan]{uncompressed_token_count:,}[/bold bright_cyan]")
+                console.print(f"[bright_green]Estimated Model Token Count (incl. overhead):[/bright_green] [bold bright_yellow]{estimated_uncompressed_token_count:,}[/bold bright_yellow]")
 
                 if ENABLE_COMPRESSION_AND_NLTK:
                     # ... (existing compression logic using output_file and processed_file) ...
@@ -3175,7 +3227,9 @@ async def main():
                     print("Compressed file written.")
                     compressed_text_content = safe_file_read(processed_file)
                     compressed_token_count = get_token_count(compressed_text_content)
-                    console.print(f"[bright_green]Compressed Token Count (approx):[/bright_green] [bold bright_cyan]{compressed_token_count}[/bold bright_cyan]")
+                    estimated_compressed_token_count = round(compressed_token_count * TOKEN_ESTIMATE_MULTIPLIER)
+                    console.print(f"[bright_green]Compressed Content Token Count (tiktoken):[/bright_green] [bold bright_cyan]{compressed_token_count:,}[/bold bright_cyan]")
+                    console.print(f"[bright_green]Compressed Estimated Model Token Count:[/bright_green] [bold bright_yellow]{estimated_compressed_token_count:,}[/bold bright_yellow]")
 
                 try:
                     pyperclip.copy(final_combined_output)
@@ -3290,7 +3344,9 @@ async def main():
 
             # Get token count for the main output (strips XML tags)
             uncompressed_token_count = get_token_count(final_output)
-            console.print(f"\n[bright_green]Content Token Count (approx):[/bright_green] [bold bright_cyan]{uncompressed_token_count}[/bold bright_cyan]")
+            estimated_uncompressed_token_count = round(uncompressed_token_count * TOKEN_ESTIMATE_MULTIPLIER)
+            console.print(f"\n[bright_green]Content Token Count (tiktoken):[/bright_green] [bold bright_cyan]{uncompressed_token_count:,}[/bold bright_cyan]")
+            console.print(f"[bright_green]Estimated Model Token Count (incl. overhead):[/bright_green] [bold bright_yellow]{estimated_uncompressed_token_count:,}[/bold bright_yellow]")
 
             # --- Conditional Compression Block ---
             if ENABLE_COMPRESSION_AND_NLTK:
@@ -3303,7 +3359,9 @@ async def main():
                 # Get token count for the compressed file (should be plain text)
                 compressed_text = safe_file_read(processed_file)
                 compressed_token_count = get_token_count(compressed_text) # Pass compressed text directly
-                console.print(f"[bright_green]Compressed Token Count (approx):[/bright_green] [bold bright_cyan]{compressed_token_count}[/bold bright_cyan]")
+                estimated_compressed_token_count = round(compressed_token_count * TOKEN_ESTIMATE_MULTIPLIER)
+                console.print(f"[bright_green]Compressed Content Token Count (tiktoken):[/bright_green] [bold bright_cyan]{compressed_token_count:,}[/bold bright_cyan]")
+                console.print(f"[bright_green]Compressed Estimated Model Token Count:[/bright_green] [bold bright_yellow]{estimated_compressed_token_count:,}[/bold bright_yellow]")
                 console.print(f"\n[bold bright_blue]{output_file}[/bold bright_blue] (main XML) and [bold bright_yellow]{processed_file}[/bold bright_yellow] (compressed text) created.")
             else:
                  console.print(f"\n[bold bright_blue]{output_file}[/bold bright_blue] (main XML) has been created.")
